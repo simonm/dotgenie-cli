@@ -86,7 +86,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	var behind, ahead int
 	if err == nil {
-		fmt.Sscanf(strings.TrimSpace(string(statusOutput)), "%d\t%d", &behind, &ahead)
+		_, _ = fmt.Sscanf(strings.TrimSpace(string(statusOutput)), "%d\t%d", &behind, &ahead)
 	}
 
 	fmt.Printf("Status: %d commit(s) ahead, %d commit(s) behind\n", ahead, behind)

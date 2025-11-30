@@ -302,7 +302,7 @@ func gitPullIfNeeded(dotfilesDir string) error {
 	// Fetch
 	fetchCmd := exec.Command("git", "fetch", "--quiet")
 	fetchCmd.Dir = dotfilesDir
-	fetchCmd.Run()
+	_ = fetchCmd.Run() // Ignore error - fetch failure is non-fatal
 
 	// Check if behind
 	statusCmd := exec.Command("git", "status", "-uno", "--porcelain=v2", "--branch")

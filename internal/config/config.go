@@ -55,7 +55,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Apply defaults
-	if cfg.AutoPullBeforeApply == false && cfg.AutoCommitAfterAdopt == false {
+	if !cfg.AutoPullBeforeApply && !cfg.AutoCommitAfterAdopt {
 		cfg.AutoPullBeforeApply = true
 		cfg.AutoCommitAfterAdopt = true
 	}
