@@ -1,0 +1,156 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
+// Config represents the dotgenie configuration
+type Config struct {
+	OS         string `yaml:"os"`
+	SystemType string `yaml:"system_type"`
+	Hostname   string `yaml:"hostname"`
+
+	// Sync settings
+	AutoPullBeforeApply  bool `yaml:"auto_pull_before_apply"`
+	AutoCommitAfterAdopt bool `yaml:"auto_commit_after_adopt"`
+	AutoPushAfterAdopt   bool `yaml:"auto_push_after_adopt"`
+}
+
+// Paths holds the important directories
+type Paths struct {
+	Home       string
+	DotfilesDir string
+	ConfigFile string
+}
+
+// DefaultPaths returns the default paths
+func DefaultPaths() Paths {
+	home, _ := os.UserHomeDir()
+	dotfilesDir := filepath.Join(home, ".dotfiles")
+
+	return Paths{
+		Home:        home,
+		DotfilesDir: dotfilesDir,
+		ConfigFile:  filepath.Join(dotfilesDir, "config.yml"),
+	}
+}
+
+// Load reads the config file
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+
+	// Apply defaults
+	if cfg.AutoPullBeforeApply == false && cfg.AutoCommitAfterAdopt == false {
+		cfg.AutoPullBeforeApply = true
+		cfg.AutoCommitAfterAdopt = true
+	}
+
+	return &cfg, nil
+}
+
+// Save writes the config file
+func (c *Config) Save(path string) error {
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// DetectOS detects the operating system
+func DetectOS() string {
+	if runtime.GOOS == "darwin" {
+		return "macos"
+	}
+
+	// Read /etc/os-release for Linux
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return "unknown"
+	}
+
+	content := string(data)
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "ID=") {
+			id := strings.TrimPrefix(line, "ID=")
+			id = strings.Trim(id, "\"")
+			switch id {
+			case "arch", "archlinux", "endeavouros", "manjaro":
+				return "arch"
+			case "ubuntu":
+				return "ubuntu"
+			case "debian":
+				return "debian"
+			default:
+				return id
+			}
+		}
+	}
+
+	return "unknown"
+}
+
+// DetectSystemType tries to auto-detect the system type
+func DetectSystemType() string {
+	// Check for display (GUI)
+	if os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != "" {
+		return "workstation"
+	}
+
+	// Check if in container
+	if _, err := os.Stat("/.dockerenv"); err == nil {
+		return "container"
+	}
+
+	// Check for graphical target on systemd
+	cmd := exec.Command("systemctl", "is-active", "--quiet", "graphical.target")
+	if err := cmd.Run(); err == nil {
+		return "workstation"
+	}
+
+	return "server"
+}
+
+// DetectHostname returns the hostname
+func DetectHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return hostname
+}
+
+// NewFromDetection creates a new config from auto-detection
+func NewFromDetection() *Config {
+	return &Config{
+		OS:                   DetectOS(),
+		SystemType:           DetectSystemType(),
+		Hostname:             DetectHostname(),
+		AutoPullBeforeApply:  true,
+		AutoCommitAfterAdopt: true,
+		AutoPushAfterAdopt:   false,
+	}
+}
+
+// Print prints the config
+func (c *Config) Print() {
+	fmt.Printf("OS:          %s\n", c.OS)
+	fmt.Printf("System type: %s\n", c.SystemType)
+	fmt.Printf("Hostname:    %s\n", c.Hostname)
+}
