@@ -24,16 +24,18 @@ var adoptCmd = &cobra.Command{
 	Long: `Adopt existing configuration files into dotgenie management.
 
 The files are moved into your dotfiles repository and replaced with symlinks.
+The target (home/, etc/, var/) is auto-detected based on the file path.
+
 You can specify which layer to adopt into:
   - common:      Shared across all systems
   - workstation: Desktop/laptop systems only
   - host:        This specific host only
 
 Examples:
-  dotgenie adopt ~/.config/nvim
-  dotgenie adopt --scope workstation ~/.config/hypr
-  dotgenie adopt --scope host ~/.config/monitors.xml
-  dotgenie adopt --copy-only ~/.bashrc  # Copy without symlinking`,
+  dotgenie adopt ~/.config/nvim                           # → common/home/
+  dotgenie adopt --scope workstation ~/.config/hypr       # → workstation/home/
+  dotgenie adopt --scope host /etc/modprobe.d/iwlwifi.conf  # → hosts/<hostname>/etc/
+  dotgenie adopt --copy-only ~/.bashrc                    # Copy without symlinking`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: runAdopt,
 }
@@ -58,9 +60,8 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 
 	// Determine target layer directory
 	layer := dotfiles.GetLayerForPath(adoptScope, cfg.Hostname)
-	targetDir := filepath.Join(paths.DotfilesDir, "dotfiles", layer)
 
-	fmt.Printf("Adopting into: %s\n", layer)
+	fmt.Printf("Adopting into layer: %s\n", layer)
 
 	// Expand globs and collect all files to adopt
 	var filesToAdopt []string
@@ -86,7 +87,7 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 
 	// Process each file/directory
 	for _, sourcePath := range filesToAdopt {
-		if err := adoptPath(sourcePath, targetDir, paths.Home, cfg, adoptCopyOnly, adoptYes); err != nil {
+		if err := adoptPath(sourcePath, layer, paths, cfg, adoptCopyOnly, adoptYes); err != nil {
 			fmt.Printf("Error adopting %s: %v\n", sourcePath, err)
 		}
 	}
@@ -101,7 +102,7 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func adoptPath(sourcePath, targetDir, homeDir string, cfg *config.Config, copyOnly, autoYes bool) error {
+func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config, copyOnly, autoYes bool) error {
 	// Get absolute path
 	absSource, err := filepath.Abs(sourcePath)
 	if err != nil {
@@ -117,14 +118,11 @@ func adoptPath(sourcePath, targetDir, homeDir string, cfg *config.Config, copyOn
 		realSource = absSource // Use original if eval fails
 	}
 
-	// Calculate relative path from home
-	relPath, err := filepath.Rel(homeDir, absSource)
-	if err != nil || strings.HasPrefix(relPath, "..") {
-		return fmt.Errorf("file must be under home directory: %s", absSource)
-	}
+	// Auto-detect target (home, etc, var, usr) based on path
+	targetName, relPath := dotfiles.GetTargetForPath(absSource, paths.Home)
 
-	// Target path in dotfiles repo
-	destPath := filepath.Join(targetDir, relPath)
+	// Target path in dotfiles repo: dotfiles/<layer>/<target>/<relPath>
+	destPath := filepath.Join(paths.DotfilesDir, "dotfiles", layer, targetName, relPath)
 
 	// Check if already adopted
 	if _, err := os.Stat(destPath); err == nil {
@@ -142,10 +140,15 @@ func adoptPath(sourcePath, targetDir, homeDir string, cfg *config.Config, copyOn
 	} else {
 		fmt.Printf("\nAdopting file: %s\n", absSource)
 	}
-	fmt.Printf("  → %s\n", destPath)
+	fmt.Printf("  Target: [%s] %s\n", targetName, relPath)
+	fmt.Printf("  Destination: %s\n", destPath)
 
 	if copyOnly {
 		fmt.Println("  (copy only, no symlink)")
+	}
+
+	if dotfiles.TargetNeedsSudo(targetName) && !copyOnly {
+		fmt.Println("  Note: System file - symlink creation will require sudo")
 	}
 
 	// Confirm unless -y flag
@@ -182,15 +185,41 @@ func adoptPath(sourcePath, targetDir, homeDir string, cfg *config.Config, copyOn
 	}
 
 	// Remove original and create symlink
-	if err := os.RemoveAll(absSource); err != nil {
-		return fmt.Errorf("removing original: %w", err)
-	}
-
-	if err := os.Symlink(destPath, absSource); err != nil {
-		return fmt.Errorf("creating symlink: %w", err)
+	if dotfiles.TargetNeedsSudo(targetName) {
+		// Need sudo to modify system files
+		if err := removeAndLinkWithSudo(absSource, destPath); err != nil {
+			return err
+		}
+	} else {
+		if err := os.RemoveAll(absSource); err != nil {
+			return fmt.Errorf("removing original: %w", err)
+		}
+		if err := os.Symlink(destPath, absSource); err != nil {
+			return fmt.Errorf("creating symlink: %w", err)
+		}
 	}
 
 	fmt.Printf("Adopted and linked: %s → %s\n", absSource, destPath)
+	return nil
+}
+
+func removeAndLinkWithSudo(originalPath, destPath string) error {
+	// Remove original with sudo
+	rmCmd := execCommand("sudo", "rm", "-rf", originalPath)
+	rmCmd.Stdout = os.Stdout
+	rmCmd.Stderr = os.Stderr
+	if err := rmCmd.Run(); err != nil {
+		return fmt.Errorf("sudo rm failed: %w", err)
+	}
+
+	// Create symlink with sudo
+	lnCmd := execCommand("sudo", "ln", "-s", destPath, originalPath)
+	lnCmd.Stdout = os.Stdout
+	lnCmd.Stderr = os.Stderr
+	if err := lnCmd.Run(); err != nil {
+		return fmt.Errorf("sudo ln failed: %w", err)
+	}
+
 	return nil
 }
 
