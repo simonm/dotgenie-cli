@@ -43,6 +43,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&dotfilesDir, "dotfiles", "", "dotfiles directory (default: ~/.dotfiles)")
 
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(newCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(adoptCmd)
