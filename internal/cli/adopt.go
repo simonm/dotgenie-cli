@@ -139,13 +139,21 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 	// Target path in dotfiles repo: dotfiles/<layer>/<target>/<relPath>
 	destPath := filepath.Join(paths.DotfilesDir, "dotfiles", layer, targetName, relPath)
 
-	// Check if already adopted
+	// Check if already adopted at this exact scope
 	if _, err := os.Stat(destPath); err == nil {
 		// Check if source is already a symlink to destPath
 		if linkTarget, err := os.Readlink(absSource); err == nil && linkTarget == destPath {
 			return fmt.Errorf("already managed (symlinked to dotfiles)")
 		}
-		return fmt.Errorf("already exists in dotfiles: %s\n  Use 'dotgenie forget' first if you want to re-adopt", destPath)
+		return fmt.Errorf("already exists in dotfiles at this scope: %s\n  Use 'dotgenie forget' first if you want to re-adopt", destPath)
+	}
+
+	// Check if source is a symlink pointing to a different scope (overlay case)
+	// This is allowed - we're creating an override
+	if linkTarget, err := os.Readlink(absSource); err == nil {
+		if strings.Contains(linkTarget, paths.DotfilesDir) {
+			fmt.Printf("  Note: Creating override (base exists in another scope)\n")
+		}
 	}
 
 	// Show what will happen
@@ -194,7 +202,7 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 		return fmt.Errorf("creating directory: %w", err)
 	}
 
-	// Copy or move the file/directory
+	// Copy the file/directory to dotfiles repo
 	if info.IsDir() {
 		if err := copyDir(realSource, destPath); err != nil {
 			return fmt.Errorf("copying directory: %w", err)
@@ -210,22 +218,47 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 		return nil
 	}
 
-	// Remove original and create symlink
-	if dotfiles.TargetNeedsSudo(targetName) {
-		// Need sudo to modify system files
-		if err := removeAndLinkWithSudo(absSource, destPath); err != nil {
-			return err
+	// For directories: remove original and create individual file symlinks
+	// For files: remove original and create single symlink
+	if info.IsDir() {
+		// Remove original directory
+		if dotfiles.TargetNeedsSudo(targetName) {
+			rmCmd := execCommand("sudo", "rm", "-rf", absSource)
+			rmCmd.Stdout = os.Stdout
+			rmCmd.Stderr = os.Stderr
+			if err := rmCmd.Run(); err != nil {
+				return fmt.Errorf("sudo rm failed: %w", err)
+			}
+		} else {
+			if err := os.RemoveAll(absSource); err != nil {
+				return fmt.Errorf("removing original: %w", err)
+			}
 		}
+
+		// Create individual file symlinks (not directory symlink)
+		// This enables overlay support where host-specific files can override
+		if err := createFileSymlinks(destPath, absSource, targetName); err != nil {
+			return fmt.Errorf("creating symlinks: %w", err)
+		}
+		fmt.Printf("Adopted: %s\n", absSource)
+		fmt.Println("  Created individual file symlinks (supports overrides)")
 	} else {
-		if err := os.RemoveAll(absSource); err != nil {
-			return fmt.Errorf("removing original: %w", err)
+		// Single file - create symlink directly
+		if dotfiles.TargetNeedsSudo(targetName) {
+			if err := removeAndLinkWithSudo(absSource, destPath); err != nil {
+				return err
+			}
+		} else {
+			if err := os.RemoveAll(absSource); err != nil {
+				return fmt.Errorf("removing original: %w", err)
+			}
+			if err := os.Symlink(destPath, absSource); err != nil {
+				return fmt.Errorf("creating symlink: %w", err)
+			}
 		}
-		if err := os.Symlink(destPath, absSource); err != nil {
-			return fmt.Errorf("creating symlink: %w", err)
-		}
+		fmt.Printf("Adopted and linked: %s → %s\n", absSource, destPath)
 	}
 
-	fmt.Printf("Adopted and linked: %s → %s\n", absSource, destPath)
 	return nil
 }
 
@@ -281,6 +314,41 @@ func copyDir(src, dst string) error {
 		}
 
 		return copyFile(path, targetPath)
+	})
+}
+
+// createFileSymlinks walks a source directory and creates symlinks for each file
+// This creates the target directory structure with individual file symlinks
+func createFileSymlinks(srcDir, dstDir, targetName string) error {
+	needsSudo := dotfiles.TargetNeedsSudo(targetName)
+
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+
+		targetPath := filepath.Join(dstDir, relPath)
+
+		if info.IsDir() {
+			// Create directory (not symlink)
+			if needsSudo {
+				mkdirCmd := execCommand("sudo", "mkdir", "-p", targetPath)
+				return mkdirCmd.Run()
+			}
+			return os.MkdirAll(targetPath, 0755)
+		}
+
+		// Create symlink for file
+		if needsSudo {
+			lnCmd := execCommand("sudo", "ln", "-s", path, targetPath)
+			return lnCmd.Run()
+		}
+		return os.Symlink(path, targetPath)
 	})
 }
 
