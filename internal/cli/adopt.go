@@ -89,6 +89,11 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 	for _, sourcePath := range filesToAdopt {
 		if err := adoptPath(sourcePath, layer, paths, cfg, adoptCopyOnly, adoptYes); err != nil {
 			fmt.Printf("Error adopting %s: %v\n", sourcePath, err)
+			// Hint if path looks like a scope name
+			basename := filepath.Base(sourcePath)
+			if basename == "common" || basename == "workstation" || basename == "host" {
+				fmt.Printf("  Hint: Did you mean --scope %s?\n", basename)
+			}
 		}
 	}
 
@@ -109,6 +114,16 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 		return err
 	}
 
+	// Check if source is a symlink (from stow, chezmoi, etc.)
+	var existingLinkTarget string
+	if linkTarget, err := os.Readlink(absSource); err == nil {
+		// It's a symlink - resolve to absolute path
+		if !filepath.IsAbs(linkTarget) {
+			linkTarget = filepath.Join(filepath.Dir(absSource), linkTarget)
+		}
+		existingLinkTarget = linkTarget
+	}
+
 	// Resolve symlinks to get the real file
 	realSource, err := filepath.EvalSymlinks(absSource)
 	if err != nil {
@@ -126,7 +141,11 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 
 	// Check if already adopted
 	if _, err := os.Stat(destPath); err == nil {
-		return fmt.Errorf("already exists in dotfiles: %s", destPath)
+		// Check if source is already a symlink to destPath
+		if linkTarget, err := os.Readlink(absSource); err == nil && linkTarget == destPath {
+			return fmt.Errorf("already managed (symlinked to dotfiles)")
+		}
+		return fmt.Errorf("already exists in dotfiles: %s\n  Use 'dotgenie forget' first if you want to re-adopt", destPath)
 	}
 
 	// Show what will happen
@@ -140,6 +159,13 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 	} else {
 		fmt.Printf("\nAdopting file: %s\n", absSource)
 	}
+
+	// Show migration info if adopting from another tool
+	if existingLinkTarget != "" {
+		fmt.Printf("  Migrating from: %s (existing symlink)\n", existingLinkTarget)
+		fmt.Printf("  Content from:   %s\n", realSource)
+	}
+
 	fmt.Printf("  Target: [%s] %s\n", targetName, relPath)
 	fmt.Printf("  Destination: %s\n", destPath)
 

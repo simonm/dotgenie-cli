@@ -111,8 +111,8 @@ main() {
 
     echo ""
     info "Get started:"
-    echo "  dotgenie init https://github.com/you/dotfiles"
-    echo "  dotgenie apply"
+    echo "  dotgenie new              # Creates ~/.dotfiles"
+    echo "  dotgenie new ~/my-dots    # Or specify a directory"
 }
 
 main "$@"
