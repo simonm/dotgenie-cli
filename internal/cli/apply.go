@@ -13,35 +13,33 @@ import (
 )
 
 var (
-	applyDotfilesOnly    bool
-	applyPackagesOnly    bool
+	applyWithPackages    bool
 	applyDryRun          bool
 	applyContinueOnError bool
 	applyVerbose         bool
-	applySystem          bool
+	applyAskBecomePass   bool
 )
 
 var applyCmd = &cobra.Command{
 	Use:   "apply",
-	Short: "Apply dotfiles and install packages",
-	Long: `Apply your dotfiles configuration:
-  1. Link dotfiles from common/, workstation/, and hosts/<hostname>/
-  2. Install packages via Ansible
+	Short: "Apply dotfiles and optionally install packages",
+	Long: `Apply your dotfiles configuration by linking dotfiles from
+common/, workstation/, and hosts/<hostname>/.
 
-By default, only home/ dotfiles are linked. Use --system to also link
-system files (etc/, var/, usr/) which requires sudo.
+Both home (~/) and system files (/etc, /var, /usr) are checked.
+If system files need changes, you'll be prompted before sudo runs.
 
-Use --dotfiles-only or --packages-only to run just one step.`,
+Use --packages to also install packages via Ansible.
+Use -K to prompt for sudo password when installing packages.`,
 	RunE: runApply,
 }
 
 func init() {
-	applyCmd.Flags().BoolVar(&applyDotfilesOnly, "dotfiles-only", false, "Only link dotfiles, skip packages")
-	applyCmd.Flags().BoolVar(&applyPackagesOnly, "packages-only", false, "Only install packages, skip dotfiles")
+	applyCmd.Flags().BoolVarP(&applyWithPackages, "packages", "p", false, "Also install packages via Ansible")
+	applyCmd.Flags().BoolVarP(&applyAskBecomePass, "ask-become-pass", "K", false, "Prompt for sudo password (for Ansible)")
 	applyCmd.Flags().BoolVarP(&applyDryRun, "dry-run", "n", false, "Show what would be done without making changes")
 	applyCmd.Flags().BoolVarP(&applyContinueOnError, "continue-on-error", "k", false, "Continue even if some packages fail")
 	applyCmd.Flags().BoolVarP(&applyVerbose, "verbose", "v", false, "Show detailed output")
-	applyCmd.Flags().BoolVar(&applySystem, "system", false, "Also apply system files (etc/, var/) - requires sudo")
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
@@ -63,15 +61,13 @@ func runApply(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Apply dotfiles
-	if !applyPackagesOnly {
-		if err := applyDotfilesWithTargets(paths, cfg); err != nil {
-			return err
-		}
+	// Apply dotfiles (home + system)
+	if err := applyAllDotfiles(paths, cfg); err != nil {
+		return err
 	}
 
-	// Install packages
-	if !applyDotfilesOnly {
+	// Install packages (only if --packages flag)
+	if applyWithPackages {
 		if err := applyPackages(paths, cfg); err != nil {
 			return err
 		}
@@ -81,7 +77,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func applyDotfilesWithTargets(paths config.Paths, cfg *config.Config) error {
+func applyAllDotfiles(paths config.Paths, cfg *config.Config) error {
 	fmt.Println("\n─── Dotfiles ───")
 	start := time.Now()
 
@@ -96,13 +92,12 @@ func applyDotfilesWithTargets(paths config.Paths, cfg *config.Config) error {
 		fmt.Println("(dry run - no changes will be made)")
 	}
 
-	// Always include home target
-	targets := []dotfiles.Target{
+	// Apply home files
+	homeTargets := []dotfiles.Target{
 		{Name: "home", RootPath: paths.Home, NeedSudo: false},
 	}
 
-	// Apply home files first
-	actions, err := mgr.Apply(targets, applyDryRun)
+	actions, err := mgr.Apply(homeTargets, applyDryRun)
 	if err != nil {
 		return fmt.Errorf("applying home dotfiles: %w", err)
 	}
@@ -112,37 +107,53 @@ func applyDotfilesWithTargets(paths config.Paths, cfg *config.Config) error {
 		dotfiles.PrintActions(filterByTarget(actions, "home"), applyVerbose)
 	}
 
-	// Apply system files if requested
-	if applySystem {
-		systemTargets := []dotfiles.Target{
-			{Name: "etc", RootPath: "/etc", NeedSudo: true},
-			{Name: "var", RootPath: "/var", NeedSudo: true},
-			{Name: "usr", RootPath: "/usr", NeedSudo: true},
+	// Check system files
+	systemTargets := []dotfiles.Target{
+		{Name: "etc", RootPath: "/etc", NeedSudo: true},
+		{Name: "var", RootPath: "/var", NeedSudo: true},
+		{Name: "usr", RootPath: "/usr", NeedSudo: true},
+	}
+
+	// Check if there are any system files that need changes
+	systemActions, _ := mgr.Status(systemTargets)
+	needsSystemChanges := false
+	for _, a := range systemActions {
+		if a.Action != "ok" {
+			needsSystemChanges = true
+			break
+		}
+	}
+
+	if needsSystemChanges {
+		fmt.Println("\n  [system] - changes needed:")
+		for _, target := range []string{"etc", "var", "usr"} {
+			filtered := filterByTarget(systemActions, target)
+			needsChange := false
+			for _, a := range filtered {
+				if a.Action != "ok" {
+					needsChange = true
+					break
+				}
+			}
+			if needsChange {
+				fmt.Printf("    [%s]\n", target)
+				dotfiles.PrintActions(filtered, applyVerbose)
+			}
 		}
 
-		// Check if there are any system files to apply
-		testActions, _ := mgr.Status(systemTargets)
-		if len(testActions) > 0 {
-			fmt.Println("\n  [system] (requires sudo)")
-
-			if applyDryRun {
-				// Just show what would be done
-				sysActions, err := mgr.Apply(systemTargets, true)
-				if err != nil {
-					return fmt.Errorf("checking system dotfiles: %w", err)
-				}
-				for _, target := range []string{"etc", "var", "usr"} {
-					filtered := filterByTarget(sysActions, target)
-					if len(filtered) > 0 {
-						fmt.Printf("\n    [%s]\n", target)
-						dotfiles.PrintActions(filtered, applyVerbose)
-					}
-				}
-			} else {
-				// Actually apply with sudo wrapper
+		if applyDryRun {
+			fmt.Println("\n  (dry run - no system changes made)")
+		} else {
+			// Prompt user before running sudo
+			fmt.Print("\nSystem files need updating. Run with sudo? [y/N] ")
+			var response string
+			fmt.Scanln(&response)
+			if response == "y" || response == "Y" || response == "yes" {
 				if err := applySystemFilesWithSudo(paths, cfg, systemTargets); err != nil {
 					return err
 				}
+			} else {
+				fmt.Println("Skipped system files")
 			}
 		}
 	}
@@ -272,10 +283,14 @@ func applyPackages(paths config.Paths, cfg *config.Config) error {
 	} else {
 		ansibleArgs = append(ansibleArgs, "--diff")
 	}
+	if applyAskBecomePass {
+		ansibleArgs = append(ansibleArgs, "-K")
+	}
 
 	ansibleCmd := exec.Command("ansible-playbook", ansibleArgs...)
 	ansibleCmd.Stdout = os.Stdout
 	ansibleCmd.Stderr = os.Stderr
+	ansibleCmd.Stdin = os.Stdin
 	ansibleCmd.Dir = filepath.Join(paths.DotfilesDir, "ansible")
 
 	if err := ansibleCmd.Run(); err != nil {
