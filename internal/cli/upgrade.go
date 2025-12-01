@@ -157,25 +157,32 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Replace the current binary
 	fmt.Printf("Installing to %s...\n", execPath)
 
-	// Check if we can write to the destination
-	if err := checkWritable(execPath); err != nil {
-		return fmt.Errorf("cannot write to %s: %w\nTry running with sudo", execPath, err)
+	// Check if we can write to the directory (not the file itself, which is busy)
+	execDir := filepath.Dir(execPath)
+	if err := checkDirWritable(execDir); err != nil {
+		return fmt.Errorf("cannot write to %s: %w\nTry running with sudo", execDir, err)
 	}
 
-	// Rename old binary (backup)
+	// Rename the running binary first (this works even while running)
+	// Then write the new binary to the original path
 	backupPath := execPath + ".old"
+
+	// Remove any existing backup first
+	os.Remove(backupPath)
+
+	// Rename current binary to backup (allowed even while running)
 	if err := os.Rename(execPath, backupPath); err != nil {
-		return fmt.Errorf("failed to backup old binary: %w", err)
+		return fmt.Errorf("failed to rename old binary: %w", err)
 	}
 
-	// Move new binary into place
+	// Copy new binary to original path (not rename, since it might be cross-device)
 	if err := copyFileForUpgrade(newBinaryPath, execPath); err != nil {
 		// Try to restore backup
 		os.Rename(backupPath, execPath)
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
 
-	// Remove backup
+	// Remove backup (might fail on Windows, that's ok)
 	os.Remove(backupPath)
 
 	fmt.Printf("Successfully upgraded to %s\n", latest.TagName)
@@ -225,13 +232,15 @@ func isNewerVersion(v1, v2 string) bool {
 	return false
 }
 
-func checkWritable(path string) error {
-	// Try to open for writing
-	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+func checkDirWritable(dir string) error {
+	// Try to create a temp file in the directory to check write access
+	testFile := filepath.Join(dir, ".dotgenie-upgrade-test")
+	f, err := os.Create(testFile)
 	if err != nil {
 		return err
 	}
 	f.Close()
+	os.Remove(testFile)
 	return nil
 }
 
