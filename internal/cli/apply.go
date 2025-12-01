@@ -17,7 +17,6 @@ var (
 	applyDryRun          bool
 	applyContinueOnError bool
 	applyVerbose         bool
-	applyAskBecomePass   bool
 )
 
 var applyCmd = &cobra.Command{
@@ -29,14 +28,12 @@ common/, workstation/, and hosts/<hostname>/.
 Both home (~/) and system files (/etc, /var, /usr) are checked.
 If system files need changes, you'll be prompted before sudo runs.
 
-Use --packages to also install packages via Ansible.
-Use -K to prompt for sudo password when installing packages.`,
+Use --packages to also install packages via Ansible.`,
 	RunE: runApply,
 }
 
 func init() {
 	applyCmd.Flags().BoolVarP(&applyWithPackages, "packages", "p", false, "Also install packages via Ansible")
-	applyCmd.Flags().BoolVarP(&applyAskBecomePass, "ask-become-pass", "K", false, "Prompt for sudo password (for Ansible)")
 	applyCmd.Flags().BoolVarP(&applyDryRun, "dry-run", "n", false, "Show what would be done without making changes")
 	applyCmd.Flags().BoolVarP(&applyContinueOnError, "continue-on-error", "k", false, "Continue even if some packages fail")
 	applyCmd.Flags().BoolVarP(&applyVerbose, "verbose", "v", false, "Show detailed output")
@@ -283,7 +280,10 @@ func applyPackages(paths config.Paths, cfg *config.Config) error {
 	} else {
 		ansibleArgs = append(ansibleArgs, "--diff")
 	}
-	if applyAskBecomePass {
+
+	// Check if sudo requires a password (no cached credentials)
+	// If so, add -K to prompt for it
+	if sudoNeedsPassword() {
 		ansibleArgs = append(ansibleArgs, "-K")
 	}
 
@@ -357,4 +357,13 @@ func containsSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// sudoNeedsPassword checks if sudo requires a password
+// Returns true if no cached credentials, false if sudo would succeed without password
+func sudoNeedsPassword() bool {
+	// sudo -n (non-interactive) returns 0 if we can sudo without password
+	cmd := exec.Command("sudo", "-n", "true")
+	err := cmd.Run()
+	return err != nil
 }

@@ -184,6 +184,23 @@ func (m *Manager) processFile(target Target, relPath, sourcePath string, dryRun 
 		Target:     target.Name,
 	}
 
+	// SAFETY: Never create symlinks inside the dotfiles directory
+	// This can happen if targetPath is already a symlink pointing into dotfiles
+	absTarget, _ := filepath.EvalSymlinks(filepath.Dir(targetPath))
+	if absTarget != "" && strings.HasPrefix(absTarget, m.DotfilesDir) {
+		action.Action = "skip"
+		action.Error = fmt.Errorf("target resolves inside dotfiles dir (circular symlink?)")
+		return action
+	}
+
+	// Also check the target path itself without following symlinks
+	absTargetPath, _ := filepath.Abs(targetPath)
+	if strings.HasPrefix(absTargetPath, m.DotfilesDir) {
+		action.Action = "skip"
+		action.Error = fmt.Errorf("target is inside dotfiles dir")
+		return action
+	}
+
 	// Check current state of target
 	targetInfo, err := os.Lstat(targetPath)
 

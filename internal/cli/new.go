@@ -114,52 +114,115 @@ func runNew(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Hostname:    %s\n", cfg.Hostname)
 
 	fmt.Printf("\nNext steps:\n")
-	fmt.Printf("  1. Add dotfiles:     dotgenie adopt ~/.config/nvim\n")
-	fmt.Printf("  2. Edit packages:    $EDITOR %s/packages/common.yml\n", paths.DotfilesDir)
+	fmt.Printf("  1. Edit packages:    Review and customize the package files in %s/packages/\n", paths.DotfilesDir)
+	fmt.Printf("                       These contain example packages - edit to match your preferences\n")
+	fmt.Printf("  2. Add dotfiles:     dotgenie adopt ~/.config/nvim\n")
 	fmt.Printf("  3. Apply:            dotgenie apply\n")
-	fmt.Printf("  4. Push to GitHub:   cd %s && git remote add origin <url> && git push -u origin main\n", paths.DotfilesDir)
+	fmt.Printf("  4. Install packages: dotgenie apply --packages\n")
+	fmt.Printf("  5. Push to GitHub:   cd %s && git remote add origin <url> && git push -u origin main\n", paths.DotfilesDir)
 
 	return nil
 }
 
 func createPackageFiles(dotfilesDir string, cfg *config.Config) error {
 	// Common packages (all systems)
-	commonPkgs := `# Packages installed on all systems
+	commonPkgs := `# Common packages - installed on all systems
+# Use simple strings for packages with the same name across all OSes
+# Use dicts with OS keys for packages with different names
+
 packages:
+  # Essential tools
   - git
   - curl
   - wget
-  - htop
+  - rsync
+  - less
+  - tree
+
+  # Shell & terminal
+  - fish
   - tmux
-  - neovim
+  - starship
+
+  # Modern CLI tools
+  - bat
   - ripgrep
-  - fd:
-      debian: fd-find
-      ubuntu: fd-find
   - fzf
   - jq
-  - tree
+  - htop
+  - zoxide
+  - eza
+  - lazygit
+
+  # Packages with different names across OSes
+  - name: fd
+    arch: fd
+    debian: fd-find
+    ubuntu: fd-find
+    macos: fd
+
+  - name: go
+    arch: go
+    debian: golang
+    ubuntu: golang
+    macos: go
+
+  # Editors
+  - neovim
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/common.yml"), []byte(commonPkgs), 0644); err != nil {
 		return err
 	}
 
 	// Workstation packages (GUI systems)
-	workstationPkgs := `# Packages installed on workstations (desktop/laptop with GUI)
+	workstationPkgs := `# Workstation packages - installed on systems with GUI
+# These are added on top of common packages
+
 packages:
-  # - firefox
+  # Terminal emulators (uncomment your preferred)
+  # - kitty
+  # - ghostty
   # - alacritty
-  # - ghostty  # Uncomment if using Ghostty terminal
+  # - wezterm
+
+  # Browsers (uncomment your preferred)
+  # - firefox
+
+  # Dev tools
+  # - npm
+  # - rustup
+
+  # Packages with OS-specific names
+  - name: 7zip
+    arch: p7zip
+    debian: p7zip-full
+    ubuntu: p7zip-full
+    macos: p7zip
+
+  # Fonts
+  - name: nerd-fonts
+    arch: ttf-jetbrains-mono-nerd
+    debian: fonts-jetbrains-mono
+    ubuntu: fonts-jetbrains-mono
+    macos: font-jetbrains-mono-nerd-font
+
+# AUR packages (Arch only, requires yay or similar)
+aur_packages: []
+  # - visual-studio-code-bin
+  # - google-chrome
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/workstation.yml"), []byte(workstationPkgs), 0644); err != nil {
 		return err
 	}
 
 	// Server packages
-	serverPkgs := `# Packages installed on servers
+	serverPkgs := `# Server packages - installed on servers/headless systems
+# These are added on top of common packages
+
 packages:
   # - docker
   # - nginx
+  # - certbot
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/server.yml"), []byte(serverPkgs), 0644); err != nil {
 		return err
@@ -168,25 +231,31 @@ packages:
 	// OS-specific packages
 	osPkgs := map[string]string{
 		"arch": `# Arch Linux specific packages
-packages:
-  # - base-devel
-  # - yay  # AUR helper
 
-# AUR packages (requires kewlfft.aur collection)
+packages:
+  - base-devel
+  - pacman-contrib
+  - man-db
+
 aur_packages:
-  # - visual-studio-code-bin
+  # - yay  # AUR helper (if not already installed)
 `,
 		"ubuntu": `# Ubuntu specific packages
+
 packages:
-  # - build-essential
+  - build-essential
+  - software-properties-common
 `,
 		"debian": `# Debian specific packages
+
 packages:
-  # - build-essential
+  - build-essential
 `,
 		"macos": `# macOS specific packages (via Homebrew)
+
 packages:
-  # - coreutils
+  - coreutils
+  - gnu-sed
 `,
 	}
 
