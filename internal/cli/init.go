@@ -39,6 +39,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 		paths.DotfilesDir = dotfilesDir
 	}
 
+	// Ensure git is available (needed for clone)
+	if len(args) > 0 {
+		if err := ensureDep("git", config.DetectOS()); err != nil {
+			return err
+		}
+	}
+
 	// Check if already initialized
 	if _, err := os.Stat(paths.DotfilesDir); err == nil {
 		if len(args) == 0 {
@@ -108,14 +115,19 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Install Ansible collections if requirements.yml exists
 	requirementsFile := filepath.Join(paths.DotfilesDir, "ansible", "collections", "requirements.yml")
 	if _, err := os.Stat(requirementsFile); err == nil {
-		fmt.Println("\nInstalling Ansible collections...")
-		ansibleCmd := exec.Command("ansible-galaxy", "collection", "install", "-r", requirementsFile)
-		ansibleCmd.Stdout = os.Stdout
-		ansibleCmd.Stderr = os.Stderr
-		if err := ansibleCmd.Run(); err != nil {
-			fmt.Printf("⚠ Warning: Failed to install Ansible collections: %v\n", err)
+		if err := ensureDep("ansible", config.DetectOS()); err != nil {
+			fmt.Printf("Warning: %v\n", err)
+			fmt.Println("You can install Ansible later and run 'dotgenie init' again")
 		} else {
-			fmt.Println("✓ Ansible collections installed")
+			fmt.Println("\nInstalling Ansible collections...")
+			ansibleCmd := exec.Command("ansible-galaxy", "collection", "install", "-r", requirementsFile)
+			ansibleCmd.Stdout = os.Stdout
+			ansibleCmd.Stderr = os.Stderr
+			if err := ansibleCmd.Run(); err != nil {
+				fmt.Printf("Warning: Failed to install Ansible collections: %v\n", err)
+			} else {
+				fmt.Println("Ansible collections installed")
+			}
 		}
 	}
 
