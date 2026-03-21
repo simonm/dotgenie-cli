@@ -105,12 +105,22 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Save config
-	configPath := filepath.Join(paths.DotfilesDir, "config.yml")
-	if err := cfg.Save(configPath); err != nil {
-		return fmt.Errorf("saving config: %w", err)
+	// Save local config (machine-specific, gitignored)
+	localConfigPath := filepath.Join(paths.DotfilesDir, "config.local.yml")
+	if err := cfg.SaveLocal(localConfigPath); err != nil {
+		return fmt.Errorf("saving local config: %w", err)
 	}
-	fmt.Printf("✓ Configuration saved to %s\n", configPath)
+	fmt.Printf("✓ Local configuration saved to %s\n", localConfigPath)
+
+	// Save shared config only if it doesn't exist (cloned repos already have it)
+	configPath := filepath.Join(paths.DotfilesDir, "config.yml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		cfg.RepoVersion = currentRepoVersion
+		if err := cfg.SaveShared(configPath); err != nil {
+			return fmt.Errorf("saving config: %w", err)
+		}
+		fmt.Printf("✓ Shared configuration saved to %s\n", configPath)
+	}
 
 	// Install Ansible collections if requirements.yml exists
 	requirementsFile := filepath.Join(paths.DotfilesDir, "ansible", "collections", "requirements.yml")
