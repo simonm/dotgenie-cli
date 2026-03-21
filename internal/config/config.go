@@ -13,9 +13,10 @@ import (
 
 // Config represents the dotgenie configuration
 type Config struct {
-	OS         string `yaml:"os"`
-	SystemType string `yaml:"system_type"`
-	Hostname   string `yaml:"hostname"`
+	RepoVersion int    `yaml:"repo_version,omitempty"`
+	OS          string `yaml:"os"`
+	SystemType  string `yaml:"system_type"`
+	Hostname    string `yaml:"hostname"`
 
 	// Sync settings
 	AutoPullBeforeApply  bool `yaml:"auto_pull_before_apply"`
@@ -23,11 +24,26 @@ type Config struct {
 	AutoPushAfterAdopt   bool `yaml:"auto_push_after_adopt"`
 }
 
+// SharedConfig holds fields that belong in the shared config.yml (committed to git)
+type SharedConfig struct {
+	RepoVersion          int  `yaml:"repo_version,omitempty"`
+	AutoPullBeforeApply  bool `yaml:"auto_pull_before_apply"`
+	AutoCommitAfterAdopt bool `yaml:"auto_commit_after_adopt"`
+	AutoPushAfterAdopt   bool `yaml:"auto_push_after_adopt"`
+}
+
+// LocalConfig holds fields that belong in config.local.yml (machine-specific, gitignored)
+type LocalConfig struct {
+	OS         string `yaml:"os"`
+	SystemType string `yaml:"system_type"`
+	Hostname   string `yaml:"hostname"`
+}
+
 // Paths holds the important directories
 type Paths struct {
-	Home       string
+	Home        string
 	DotfilesDir string
-	ConfigFile string
+	ConfigFile  string
 }
 
 // DefaultPaths returns the default paths
@@ -42,7 +58,9 @@ func DefaultPaths() Paths {
 	}
 }
 
-// Load reads the config file
+// Load reads the config file, then overlays config.local.yml from the same directory.
+// If config.local.yml is missing and OS is empty (new-style repo), auto-detect and create it.
+// Legacy configs (all fields in one file) still work.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -54,8 +72,41 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Apply defaults
-	if !cfg.AutoPullBeforeApply && !cfg.AutoCommitAfterAdopt {
+	// Try to load config.local.yml from the same directory
+	dir := filepath.Dir(path)
+	localPath := filepath.Join(dir, "config.local.yml")
+
+	localData, localErr := os.ReadFile(localPath)
+	if localErr == nil {
+		// Overlay local fields onto cfg
+		var local LocalConfig
+		if err := yaml.Unmarshal(localData, &local); err != nil {
+			return nil, fmt.Errorf("parsing config.local.yml: %w", err)
+		}
+		if local.OS != "" {
+			cfg.OS = local.OS
+		}
+		if local.SystemType != "" {
+			cfg.SystemType = local.SystemType
+		}
+		if local.Hostname != "" {
+			cfg.Hostname = local.Hostname
+		}
+	} else if os.IsNotExist(localErr) && cfg.OS == "" {
+		// New-style repo without a local config -- auto-detect and create it
+		cfg.OS = DetectOS()
+		cfg.SystemType = DetectSystemType()
+		cfg.Hostname = DetectHostname()
+
+		fmt.Printf("Detected: %s / %s / %s\n", cfg.OS, cfg.SystemType, cfg.Hostname)
+
+		if err := cfg.SaveLocal(localPath); err != nil {
+			return nil, fmt.Errorf("auto-generating config.local.yml: %w", err)
+		}
+	}
+
+	// Apply defaults for legacy configs (RepoVersion 0 with all bools false)
+	if cfg.RepoVersion == 0 && !cfg.AutoPullBeforeApply && !cfg.AutoCommitAfterAdopt {
 		cfg.AutoPullBeforeApply = true
 		cfg.AutoCommitAfterAdopt = true
 	}
@@ -63,9 +114,38 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// Save writes the config file
+// Save writes the full config file (backward compat)
 func (c *Config) Save(path string) error {
 	data, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// SaveShared writes only the shared config fields to the given path
+func (c *Config) SaveShared(path string) error {
+	shared := SharedConfig{
+		RepoVersion:          c.RepoVersion,
+		AutoPullBeforeApply:  c.AutoPullBeforeApply,
+		AutoCommitAfterAdopt: c.AutoCommitAfterAdopt,
+		AutoPushAfterAdopt:   c.AutoPushAfterAdopt,
+	}
+	data, err := yaml.Marshal(&shared)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// SaveLocal writes only the local config fields to the given path
+func (c *Config) SaveLocal(path string) error {
+	local := LocalConfig{
+		OS:         c.OS,
+		SystemType: c.SystemType,
+		Hostname:   c.Hostname,
+	}
+	data, err := yaml.Marshal(&local)
 	if err != nil {
 		return err
 	}
