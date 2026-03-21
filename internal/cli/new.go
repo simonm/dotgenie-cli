@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const currentRepoVersion = 1
+const currentRepoVersion = 2
 
 var newCmd = &cobra.Command{
 	Use:   "new",
