@@ -257,12 +257,6 @@ collections:
       ansible.builtin.include_role:
         name: packages
       tags: [packages]
-
-# To add custom tasks or roles, create playbook.local.yml in this directory.
-# It will be imported automatically and is never overwritten by dotgenie.
-- name: Import local customizations
-  ansible.builtin.import_playbook: playbook.local.yml
-  when: lookup('file', 'playbook.local.yml', errors='ignore')
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/playbook.yml"), []byte(playbook), 0644); err != nil {
 		return err
@@ -360,6 +354,19 @@ continue_on_error: false
     - dotgenie_os == 'macos'
     - packages | length > 0
   ignore_errors: "{{ continue_on_error }}"
+  tags: [packages]
+
+# Custom local tasks (optional, never overwritten by dotgenie).
+# Create ansible/roles/packages/tasks/local.yml to add your own tasks.
+- name: Check for local customizations
+  ansible.builtin.stat:
+    path: "{{ role_path }}/tasks/local.yml"
+  register: _local_tasks
+  tags: [packages]
+
+- name: Include local customizations
+  ansible.builtin.include_tasks: local.yml
+  when: _local_tasks.stat.exists
   tags: [packages]
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/tasks/main.yml"), []byte(roleTasks), 0644); err != nil {
