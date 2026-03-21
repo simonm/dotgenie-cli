@@ -54,6 +54,35 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w\nRun 'dotgenie init' first", err)
 	}
 
+	// Check if repo infrastructure needs upgrading
+	if cfg.RepoVersion < currentRepoVersion {
+		fmt.Printf("Updating repo to dotgenie format version %d...\n", currentRepoVersion)
+
+		// Regenerate all infrastructure files
+		if err := writeAnsibleInfrastructure(paths.DotfilesDir); err != nil {
+			return fmt.Errorf("upgrading repo infrastructure: %w", err)
+		}
+
+		// If this is a legacy config (no config.local.yml yet), split it
+		localConfigPath := filepath.Join(paths.DotfilesDir, "config.local.yml")
+		if _, err := os.Stat(localConfigPath); os.IsNotExist(err) {
+			if err := cfg.SaveLocal(localConfigPath); err != nil {
+				fmt.Printf("Warning: failed to create config.local.yml: %v\n", err)
+			} else {
+				fmt.Println("Created config.local.yml (machine-specific config)")
+			}
+		}
+
+		// Update repo version and save shared config
+		cfg.RepoVersion = currentRepoVersion
+		configPath := filepath.Join(paths.DotfilesDir, "config.yml")
+		if err := cfg.SaveShared(configPath); err != nil {
+			return fmt.Errorf("saving updated config: %w", err)
+		}
+
+		fmt.Println("Repo infrastructure updated successfully")
+	}
+
 	// Auto-pull if enabled (check git is available first)
 	if cfg.AutoPullBeforeApply && !applyDryRun {
 		if err := ensureDep("git", "git", cfg.OS); err != nil {
