@@ -112,10 +112,12 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✓ Local configuration saved to %s\n", localConfigPath)
 
-	// Save shared config only if it doesn't exist (cloned repos already have it)
+	// Save shared config only if it doesn't exist (cloned repos already have it).
+	// Set repo_version to 0 so that the next 'apply' triggers an infrastructure
+	// upgrade -- the cloned repo's ansible files may be outdated.
 	configPath := filepath.Join(paths.DotfilesDir, "config.yml")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		cfg.RepoVersion = currentRepoVersion
+		cfg.RepoVersion = 0
 		if err := cfg.SaveShared(configPath); err != nil {
 			return fmt.Errorf("saving config: %w", err)
 		}
