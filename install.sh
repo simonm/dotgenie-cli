@@ -17,6 +17,43 @@ info() { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
+# Check for essential tools needed after install
+check_post_install_deps() {
+    local missing=""
+
+    if ! command -v git &> /dev/null; then
+        missing="git"
+    fi
+
+    if [ -n "$missing" ]; then
+        echo ""
+        warn "The following tools are needed but not installed: ${missing}"
+        warn "dotgenie will offer to install them when needed, or you can install manually:"
+
+        case "$(uname -s)" in
+            Darwin*)
+                echo "  brew install ${missing}"
+                ;;
+            Linux*)
+                if [ -f /etc/os-release ]; then
+                    . /etc/os-release
+                    case "$ID" in
+                        arch|archlinux|endeavouros|manjaro)
+                            echo "  sudo pacman -S ${missing}"
+                            ;;
+                        ubuntu|debian)
+                            echo "  sudo apt-get install ${missing}"
+                            ;;
+                        *)
+                            echo "  Install ${missing} using your package manager"
+                            ;;
+                    esac
+                fi
+                ;;
+        esac
+    fi
+}
+
 # Detect OS
 detect_os() {
     case "$(uname -s)" in
@@ -108,6 +145,8 @@ main() {
         info "Installation complete! Restart your shell or run:"
         echo "  export PATH=\"\$PATH:${INSTALL_DIR}\""
     fi
+
+    check_post_install_deps
 
     echo ""
     info "Get started:"
