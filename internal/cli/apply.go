@@ -54,10 +54,14 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w\nRun 'dotgenie init' first", err)
 	}
 
-	// Auto-pull if enabled
+	// Auto-pull if enabled (check git is available first)
 	if cfg.AutoPullBeforeApply && !applyDryRun {
-		if err := gitPullIfNeeded(paths.DotfilesDir); err != nil {
-			fmt.Printf("Warning: %v\n", err)
+		if err := ensureDep("git", cfg.OS); err != nil {
+			fmt.Printf("Warning: %v (skipping auto-pull)\n", err)
+		} else {
+			if err := gitPullIfNeeded(paths.DotfilesDir); err != nil {
+				fmt.Printf("Warning: %v\n", err)
+			}
 		}
 	}
 
@@ -255,6 +259,11 @@ func applyPackages(paths config.Paths, cfg *config.Config) error {
 	if _, err := os.Stat(playbookPath); os.IsNotExist(err) {
 		fmt.Println("No ansible/playbook.yml found, skipping packages")
 		return nil
+	}
+
+	// Ensure ansible is installed
+	if err := ensureDep("ansible", cfg.OS); err != nil {
+		return err
 	}
 
 	if applyDryRun {
