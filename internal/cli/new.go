@@ -55,6 +55,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 		fmt.Sprintf("dotfiles/hosts/%s/etc", cfg.Hostname),
 		"packages",
 		"ansible/inventory",
+		"ansible/collections",
 		"ansible/roles/packages/tasks",
 		"ansible/roles/packages/defaults",
 	}
@@ -204,6 +205,16 @@ packages:
 }
 
 func createAnsibleFiles(dotfilesDir string) error {
+	// Collection requirements
+	requirements := `---
+collections:
+  - name: community.general
+  - name: kewlfft.aur
+`
+	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/collections/requirements.yml"), []byte(requirements), 0644); err != nil {
+		return err
+	}
+
 	// Inventory
 	inventory := `all:
   hosts:

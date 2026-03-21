@@ -266,6 +266,18 @@ func applyPackages(paths config.Paths, cfg *config.Config) error {
 		return err
 	}
 
+	// Install Ansible collections if requirements.yml exists
+	requirementsFile := filepath.Join(paths.DotfilesDir, "ansible", "collections", "requirements.yml")
+	if _, err := os.Stat(requirementsFile); err == nil {
+		fmt.Println("Installing Ansible collections...")
+		galaxyCmd := exec.Command("ansible-galaxy", "collection", "install", "-r", requirementsFile)
+		galaxyCmd.Stdout = os.Stdout
+		galaxyCmd.Stderr = os.Stderr
+		if err := galaxyCmd.Run(); err != nil {
+			return fmt.Errorf("failed to install Ansible collections: %w", err)
+		}
+	}
+
 	if applyDryRun {
 		fmt.Println("(dry run - no changes will be made)")
 	}
