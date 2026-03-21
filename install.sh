@@ -41,11 +41,22 @@ check_post_install_deps() {
                         arch|archlinux|endeavouros|manjaro)
                             echo "  sudo pacman -S ${missing}"
                             ;;
-                        ubuntu|debian)
+                        ubuntu|debian|pve)
                             echo "  sudo apt-get install ${missing}"
                             ;;
                         *)
-                            echo "  Install ${missing} using your package manager"
+                            # Check ID_LIKE for derivatives (e.g. Proxmox)
+                            case "$ID_LIKE" in
+                                *debian*|*ubuntu*)
+                                    echo "  sudo apt-get install ${missing}"
+                                    ;;
+                                *arch*)
+                                    echo "  sudo pacman -S ${missing}"
+                                    ;;
+                                *)
+                                    echo "  Install ${missing} using your package manager"
+                                    ;;
+                            esac
                             ;;
                     esac
                 fi

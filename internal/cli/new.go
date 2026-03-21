@@ -259,22 +259,35 @@ continue_on_error: false
 	}
 
 	// Packages role - tasks
+	// Each package file is loaded into a separate namespace to avoid overwriting,
+	// then the lists are merged together before installation.
 	roleTasks := `---
+# Load package definitions from each layer into separate namespaces
 - name: Load common packages
   ansible.builtin.include_vars:
     file: "{{ dotgenie_dir }}/packages/common.yml"
+    name: _common_pkgs
   tags: [packages]
 
 - name: Load OS-specific packages
   ansible.builtin.include_vars:
     file: "{{ dotgenie_dir }}/packages/{{ dotgenie_os }}.yml"
+    name: _os_pkgs
   failed_when: false
   tags: [packages]
 
 - name: Load system type packages
   ansible.builtin.include_vars:
     file: "{{ dotgenie_dir }}/packages/{{ dotgenie_type }}.yml"
+    name: _type_pkgs
   failed_when: false
+  tags: [packages]
+
+# Merge all package lists together
+- name: Combine package lists
+  ansible.builtin.set_fact:
+    packages: "{{ (_common_pkgs.packages | default([])) + (_os_pkgs.packages | default([])) + (_type_pkgs.packages | default([])) }}"
+    aur_packages: "{{ (_common_pkgs.aur_packages | default([])) + (_os_pkgs.aur_packages | default([])) + (_type_pkgs.aur_packages | default([])) }}"
   tags: [packages]
 
 # Arch Linux
@@ -286,6 +299,7 @@ continue_on_error: false
   loop: "{{ packages }}"
   when:
     - dotgenie_os == 'arch'
+    - packages | length > 0
     - (item is string) or (item.arch is defined) or (item[item | first] is not mapping)
   ignore_errors: "{{ continue_on_error }}"
   tags: [packages]
@@ -297,7 +311,9 @@ continue_on_error: false
     name: "{{ item }}"
     state: present
   loop: "{{ aur_packages }}"
-  when: dotgenie_os == 'arch'
+  when:
+    - dotgenie_os == 'arch'
+    - aur_packages | length > 0
   ignore_errors: "{{ continue_on_error }}"
   tags: [packages]
 
@@ -308,7 +324,9 @@ continue_on_error: false
     name: "{{ item.debian | default(item.ubuntu) | default(item) if item is mapping else item }}"
     state: present
   loop: "{{ packages }}"
-  when: dotgenie_os in ['debian', 'ubuntu']
+  when:
+    - dotgenie_os in ['debian', 'ubuntu']
+    - packages | length > 0
   ignore_errors: "{{ continue_on_error }}"
   tags: [packages]
 
@@ -318,7 +336,9 @@ continue_on_error: false
     name: "{{ item.macos | default(item) if item is mapping else item }}"
     state: present
   loop: "{{ packages }}"
-  when: dotgenie_os == 'macos'
+  when:
+    - dotgenie_os == 'macos'
+    - packages | length > 0
   ignore_errors: "{{ continue_on_error }}"
   tags: [packages]
 `

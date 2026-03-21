@@ -86,23 +86,42 @@ func DetectOS() string {
 
 	content := string(data)
 	lines := strings.Split(content, "\n")
+
+	var id, idLike string
 	for _, line := range lines {
 		if strings.HasPrefix(line, "ID=") {
-			id := strings.TrimPrefix(line, "ID=")
-			id = strings.Trim(id, "\"")
-			switch id {
-			case "arch", "archlinux", "endeavouros", "manjaro":
-				return "arch"
-			case "ubuntu":
-				return "ubuntu"
-			case "debian":
-				return "debian"
-			default:
-				return id
-			}
+			id = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
+		}
+		if strings.HasPrefix(line, "ID_LIKE=") {
+			idLike = strings.Trim(strings.TrimPrefix(line, "ID_LIKE="), "\"")
 		}
 	}
 
+	// Match on ID first
+	switch id {
+	case "arch", "archlinux", "endeavouros", "manjaro":
+		return "arch"
+	case "ubuntu":
+		return "ubuntu"
+	case "debian":
+		return "debian"
+	}
+
+	// Fall back to ID_LIKE for derivatives (e.g. Proxmox has ID=pve, ID_LIKE=debian)
+	for _, like := range strings.Fields(idLike) {
+		switch like {
+		case "arch":
+			return "arch"
+		case "ubuntu":
+			return "ubuntu"
+		case "debian":
+			return "debian"
+		}
+	}
+
+	if id != "" {
+		return id
+	}
 	return "unknown"
 }
 
