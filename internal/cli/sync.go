@@ -45,6 +45,11 @@ func runSync(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("dotfiles directory not found: %s\nRun 'dotgenie init' first", paths.DotfilesDir)
 	}
 
+	// Ensure git is available
+	if err := ensureDep("git", config.DetectOS()); err != nil {
+		return err
+	}
+
 	// Check if it's a git repo
 	gitDir := filepath.Join(paths.DotfilesDir, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
