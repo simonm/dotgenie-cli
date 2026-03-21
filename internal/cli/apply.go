@@ -56,7 +56,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	// Auto-pull if enabled (check git is available first)
 	if cfg.AutoPullBeforeApply && !applyDryRun {
-		if err := ensureDep("git", cfg.OS); err != nil {
+		if err := ensureDep("git", "git", cfg.OS); err != nil {
 			fmt.Printf("Warning: %v (skipping auto-pull)\n", err)
 		} else {
 			if err := gitPullIfNeeded(paths.DotfilesDir); err != nil {
@@ -262,7 +262,7 @@ func applyPackages(paths config.Paths, cfg *config.Config) error {
 	}
 
 	// Ensure ansible is installed
-	if err := ensureDep("ansible", cfg.OS); err != nil {
+	if err := ensureDep("ansible-playbook", "ansible", cfg.OS); err != nil {
 		return err
 	}
 

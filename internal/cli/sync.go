@@ -46,7 +46,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	// Ensure git is available
-	if err := ensureDep("git", config.DetectOS()); err != nil {
+	if err := ensureDep("git", "git", config.DetectOS()); err != nil {
 		return err
 	}
 

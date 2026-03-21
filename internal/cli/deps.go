@@ -31,18 +31,20 @@ func installCommands(detectedOS, pkg string) []string {
 
 // ensureDep checks whether a command is available. If not, it tells the user
 // how to install it and offers to do so automatically when the OS is recognized.
+// The cmd argument is the binary to check in PATH, and pkg is the package name
+// to install (they may differ, e.g. cmd="ansible-playbook" pkg="ansible").
 // Returns an error only if the dep is missing AND the user declines / install fails.
-func ensureDep(dep, detectedOS string) error {
-	if checkCommand(dep) {
+func ensureDep(cmd, pkg, detectedOS string) error {
+	if checkCommand(cmd) {
 		return nil
 	}
 
-	cmds := installCommands(detectedOS, dep)
+	cmds := installCommands(detectedOS, pkg)
 	if cmds == nil {
-		return fmt.Errorf("%s is required but not installed. Please install it manually and try again", dep)
+		return fmt.Errorf("%s is required but not installed. Please install it manually and try again", cmd)
 	}
 
-	fmt.Printf("%s is required but not installed.\n", dep)
+	fmt.Printf("%s is required but not installed.\n", cmd)
 	fmt.Printf("Install with: %s\n", strings.Join(cmds, " "))
 	fmt.Print("Install now? [Y/n] ")
 
@@ -51,33 +53,24 @@ func ensureDep(dep, detectedOS string) error {
 	response = strings.TrimSpace(strings.ToLower(response))
 
 	if response != "" && response != "y" && response != "yes" {
-		return fmt.Errorf("%s is required but not installed", dep)
+		return fmt.Errorf("%s is required but not installed", cmd)
 	}
 
-	fmt.Printf("Installing %s...\n", dep)
+	fmt.Printf("Installing %s...\n", pkg)
 	installCmd := exec.Command(cmds[0], cmds[1:]...)
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
 	installCmd.Stdin = os.Stdin
 	if err := installCmd.Run(); err != nil {
-		return fmt.Errorf("failed to install %s: %w", dep, err)
+		return fmt.Errorf("failed to install %s: %w", pkg, err)
 	}
 
 	// Verify it worked
-	if !checkCommand(dep) {
-		return fmt.Errorf("%s was installed but still not found in PATH", dep)
+	if !checkCommand(cmd) {
+		return fmt.Errorf("%s was installed but still not found in PATH", cmd)
 	}
 
-	fmt.Printf("Successfully installed %s\n", dep)
+	fmt.Printf("Successfully installed %s\n", pkg)
 	return nil
 }
 
-// ensureDeps checks multiple dependencies. Stops on the first failure.
-func ensureDeps(deps []string, detectedOS string) error {
-	for _, dep := range deps {
-		if err := ensureDep(dep, detectedOS); err != nil {
-			return err
-		}
-	}
-	return nil
-}

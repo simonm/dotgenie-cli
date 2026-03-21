@@ -41,7 +41,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Ensure git is available (needed for clone)
 	if len(args) > 0 {
-		if err := ensureDep("git", config.DetectOS()); err != nil {
+		if err := ensureDep("git", "git", config.DetectOS()); err != nil {
 			return err
 		}
 	}
@@ -115,7 +115,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Install Ansible collections if requirements.yml exists
 	requirementsFile := filepath.Join(paths.DotfilesDir, "ansible", "collections", "requirements.yml")
 	if _, err := os.Stat(requirementsFile); err == nil {
-		if err := ensureDep("ansible", config.DetectOS()); err != nil {
+		if err := ensureDep("ansible-galaxy", "ansible", config.DetectOS()); err != nil {
 			fmt.Printf("Warning: %v\n", err)
 			fmt.Println("You can install Ansible later and run 'dotgenie init' again")
 		} else {
