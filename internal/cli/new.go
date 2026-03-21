@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const currentRepoVersion = 3
+const currentRepoVersion = 4
 
 var newCmd = &cobra.Command{
 	Use:   "new",
@@ -308,31 +308,10 @@ continue_on_error: false
     aur_packages: "{{ (_common_pkgs.aur_packages | default([], true)) + (_os_pkgs.aur_packages | default([], true)) + (_type_pkgs.aur_packages | default([], true)) }}"
   tags: [packages]
 
-# Arch Linux
-- name: Install packages (Arch)
-  become: true
-  community.general.pacman:
-    name: "{{ item.arch | default(item) if item is mapping else item }}"
-    state: present
-  loop: "{{ packages }}"
-  when:
-    - dotgenie_os == 'arch'
-    - packages | length > 0
-    - (item is string) or (item.arch is defined) or (item[item | first] is not mapping)
-  ignore_errors: "{{ continue_on_error }}"
-  tags: [packages]
-
-- name: Install AUR packages (Arch)
-  become: true
-  become_user: "{{ ansible_user_id }}"
-  kewlfft.aur.aur:
-    name: "{{ item }}"
-    state: present
-  loop: "{{ aur_packages }}"
-  when:
-    - dotgenie_os == 'arch'
-    - aur_packages | length > 0
-  ignore_errors: "{{ continue_on_error }}"
+# Arch Linux (loaded conditionally so kewlfft.aur module is never parsed on other OSes)
+- name: Include Arch tasks
+  ansible.builtin.include_tasks: arch.yml
+  when: dotgenie_os == 'arch'
   tags: [packages]
 
 # Debian/Ubuntu
@@ -374,6 +353,35 @@ continue_on_error: false
   tags: [packages]
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/tasks/main.yml"), []byte(roleTasks), 0644); err != nil {
+		return err
+	}
+
+	// Arch-specific tasks (separate file so kewlfft.aur module is never parsed on other OSes)
+	archTasks := `---
+- name: Install packages (Arch)
+  become: true
+  community.general.pacman:
+    name: "{{ item.arch | default(item) if item is mapping else item }}"
+    state: present
+  loop: "{{ packages }}"
+  when:
+    - packages | length > 0
+    - (item is string) or (item.arch is defined) or (item[item | first] is not mapping)
+  ignore_errors: "{{ continue_on_error }}"
+  tags: [packages]
+
+- name: Install AUR packages (Arch)
+  become: true
+  become_user: "{{ ansible_user_id }}"
+  kewlfft.aur.aur:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ aur_packages }}"
+  when: aur_packages | length > 0
+  ignore_errors: "{{ continue_on_error }}"
+  tags: [packages]
+`
+	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/tasks/arch.yml"), []byte(archTasks), 0644); err != nil {
 		return err
 	}
 
