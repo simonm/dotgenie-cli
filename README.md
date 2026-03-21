@@ -19,6 +19,10 @@ curl -fsSL https://raw.githubusercontent.com/simonm/dotgenie-cli/main/install.sh
 
 Or download from [releases](https://github.com/simonm/dotgenie-cli/releases).
 
+### Dependencies
+
+dotgenie requires `git` for repository operations and `ansible` for package management. If these are missing, dotgenie will detect your OS and offer to install them automatically using your system package manager (brew, pacman, or apt-get).
+
 ## Quick Start
 
 ### New Setup (starting from scratch)
@@ -65,6 +69,7 @@ dotgenie apply
 | `adopt <path>` | Import existing configs into management |
 | `forget <path>` | Remove configs from management |
 | `sync` | Sync with remote git repository |
+| `upgrade` | Upgrade dotgenie to the latest release |
 
 ### new
 
@@ -131,6 +136,17 @@ dotgenie status --system          # Also check system files (etc/, var/)
 dotgenie sync                     # Fetch and pull if behind
 dotgenie sync --push              # Also push local commits
 ```
+
+### upgrade
+
+Upgrade dotgenie to the latest GitHub release:
+
+```bash
+dotgenie upgrade                  # Download and install latest version
+dotgenie upgrade --check          # Check for updates without installing
+```
+
+The upgrade replaces the running binary in-place. If the install directory is not writable, it will prompt you to run with `sudo`.
 
 ## Repository Structure
 
