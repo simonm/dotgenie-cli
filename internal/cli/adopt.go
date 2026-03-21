@@ -99,7 +99,9 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 
 	// Auto-commit if enabled
 	if cfg.AutoCommitAfterAdopt && !adoptCopyOnly {
-		if err := gitCommitAdopted(paths.DotfilesDir); err != nil {
+		if !checkCommand("git") {
+			fmt.Println("Warning: git not found, skipping auto-commit")
+		} else if err := gitCommitAdopted(paths.DotfilesDir); err != nil {
 			fmt.Printf("Warning: auto-commit failed: %v\n", err)
 		}
 	}
