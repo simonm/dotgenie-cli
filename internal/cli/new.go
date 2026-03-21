@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const currentRepoVersion = 2
+const currentRepoVersion = 3
 
 var newCmd = &cobra.Command{
 	Use:   "new",
@@ -300,8 +300,8 @@ continue_on_error: false
 # Merge all package lists together
 - name: Combine package lists
   ansible.builtin.set_fact:
-    packages: "{{ (_common_pkgs.packages | default([])) + (_os_pkgs.packages | default([])) + (_type_pkgs.packages | default([])) }}"
-    aur_packages: "{{ (_common_pkgs.aur_packages | default([])) + (_os_pkgs.aur_packages | default([])) + (_type_pkgs.aur_packages | default([])) }}"
+    packages: "{{ (_common_pkgs.packages | default([], true)) + (_os_pkgs.packages | default([], true)) + (_type_pkgs.packages | default([], true)) }}"
+    aur_packages: "{{ (_common_pkgs.aur_packages | default([], true)) + (_os_pkgs.aur_packages | default([], true)) + (_type_pkgs.aur_packages | default([], true)) }}"
   tags: [packages]
 
 # Arch Linux
