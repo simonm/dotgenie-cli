@@ -9,6 +9,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const currentRepoVersion = 1
+
 var newCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Create a new dotfiles repository",
@@ -55,9 +57,6 @@ func runNew(cmd *cobra.Command, args []string) error {
 		fmt.Sprintf("dotfiles/hosts/%s/etc", cfg.Hostname),
 		"packages",
 		"ansible/inventory",
-		"ansible/collections",
-		"ansible/roles/packages/tasks",
-		"ansible/roles/packages/defaults",
 	}
 
 	for _, dir := range dirs {
@@ -75,7 +74,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	fmt.Println("✓ Created package files")
 
 	// Create Ansible files
-	if err := createAnsibleFiles(paths.DotfilesDir); err != nil {
+	if err := writeAnsibleInfrastructure(paths.DotfilesDir); err != nil {
 		return err
 	}
 	fmt.Println("✓ Created Ansible playbook")
@@ -204,7 +203,14 @@ packages:
 	return nil
 }
 
-func createAnsibleFiles(dotfilesDir string) error {
+func writeAnsibleInfrastructure(dotfilesDir string) error {
+	// Ensure directories exist (needed for both new repos and upgrades)
+	for _, dir := range []string{"ansible/collections", "ansible/inventory", "ansible/roles/packages/tasks", "ansible/roles/packages/defaults"} {
+		if err := os.MkdirAll(filepath.Join(dotfilesDir, dir), 0755); err != nil {
+			return err
+		}
+	}
+
 	// Collection requirements
 	requirements := `---
 collections:
@@ -243,6 +249,12 @@ collections:
       ansible.builtin.include_role:
         name: packages
       tags: [packages]
+
+# To add custom tasks or roles, create playbook.local.yml in this directory.
+# It will be imported automatically and is never overwritten by dotgenie.
+- name: Import local customizations
+  ansible.builtin.import_playbook: playbook.local.yml
+  when: lookup('file', 'playbook.local.yml', errors='ignore')
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/playbook.yml"), []byte(playbook), 0644); err != nil {
 		return err
