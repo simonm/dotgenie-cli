@@ -112,6 +112,10 @@ func runNew(cmd *cobra.Command, args []string) error {
 	if err := gitCmd.Run(); err != nil {
 		fmt.Printf("Warning: git init failed: %v\n", err)
 	} else {
+		// Set pull strategy to merge (avoids warning on first pull)
+		pullCfg := execCommand("git", "config", "pull.rebase", "false")
+		pullCfg.Dir = paths.DotfilesDir
+		_ = pullCfg.Run()
 		fmt.Println("✓ Initialized git repository")
 	}
 
