@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const currentRepoVersion = 4
+const currentRepoVersion = 5
 
 var newCmd = &cobra.Command{
 	Use:   "new",
@@ -135,24 +135,46 @@ func runNew(cmd *cobra.Command, args []string) error {
 }
 
 func createPackageFiles(dotfilesDir string, cfg *config.Config) error {
-	// Common packages (all systems)
-	commonPkgs := `# Packages installed on all systems
+	// Common packages (all systems) - only packages that should come from the
+	// system package manager. Tools with frequent releases (neovim, ripgrep,
+	// bat, etc.) are better installed via mise - see packages/mise.yml.
+	commonPkgs := `# System packages installed on all systems (via apt, pacman, or brew)
+# For tools that benefit from latest versions, see packages/mise.yml
 packages:
   - git
   - curl
   - wget
+  - rsync
+  - less
   - htop
-  - tmux
-  - neovim
-  - ripgrep
-  - fd:
-      debian: fd-find
-      ubuntu: fd-find
-  - fzf
-  - jq
   - tree
+  - fish
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/common.yml"), []byte(commonPkgs), 0644); err != nil {
+		return err
+	}
+
+	// Mise-managed tools (latest versions, cross-platform)
+	misePkgs := `# Tools installed via mise (https://mise.jdx.dev)
+# These get the latest versions regardless of OS, avoiding outdated system packages.
+# mise is installed automatically if not present.
+mise_packages:
+  - node@lts
+  - python@latest
+  - go@latest
+  - neovim@latest
+  - eza@latest
+  - starship@latest
+  - bat@latest
+  - ripgrep@latest
+  - fd@latest
+  - fzf@latest
+  - jq@latest
+  - lazygit@latest
+  - zoxide@latest
+  - tmux@latest
+`
+	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/mise.yml"), []byte(misePkgs), 0644); err != nil {
 		return err
 	}
 
@@ -270,6 +292,7 @@ collections:
 	roleDefaults := `---
 packages: []
 aur_packages: []
+mise_packages: []
 continue_on_error: false
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/defaults/main.yml"), []byte(roleDefaults), 0644); err != nil {
@@ -301,11 +324,19 @@ continue_on_error: false
   failed_when: false
   tags: [packages]
 
+- name: Load mise packages
+  ansible.builtin.include_vars:
+    file: "{{ dotgenie_dir }}/packages/mise.yml"
+    name: _mise_pkgs
+  failed_when: false
+  tags: [packages]
+
 # Merge all package lists together
 - name: Combine package lists
   ansible.builtin.set_fact:
     packages: "{{ (_common_pkgs.packages | default([], true)) + (_os_pkgs.packages | default([], true)) + (_type_pkgs.packages | default([], true)) }}"
     aur_packages: "{{ (_common_pkgs.aur_packages | default([], true)) + (_os_pkgs.aur_packages | default([], true)) + (_type_pkgs.aur_packages | default([], true)) }}"
+    mise_packages: "{{ _mise_pkgs.mise_packages | default([], true) }}"
   tags: [packages]
 
 # Arch Linux (loaded conditionally so kewlfft.aur module is never parsed on other OSes)
@@ -337,6 +368,12 @@ continue_on_error: false
     - dotgenie_os == 'macos'
     - packages | length > 0
   ignore_errors: "{{ continue_on_error }}"
+  tags: [packages]
+
+# mise-managed tools (latest versions, cross-platform)
+- name: Include mise tasks
+  ansible.builtin.include_tasks: mise.yml
+  when: mise_packages | length > 0
   tags: [packages]
 
 # Custom local tasks (optional, never overwritten by dotgenie).
@@ -382,6 +419,25 @@ continue_on_error: false
   tags: [packages]
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/tasks/arch.yml"), []byte(archTasks), 0644); err != nil {
+		return err
+	}
+
+	// Mise tasks (install mise + tools from mise_packages list)
+	miseTasks := `---
+- name: Install mise
+  ansible.builtin.shell: curl -fsSL https://mise.run | sh
+  args:
+    creates: "{{ ansible_env.HOME }}/.local/bin/mise"
+  tags: [packages]
+
+- name: Install mise packages
+  ansible.builtin.command: "{{ ansible_env.HOME }}/.local/bin/mise use -g {{ item }}"
+  loop: "{{ mise_packages }}"
+  register: _mise_result
+  changed_when: "'installed' in _mise_result.stderr"
+  tags: [packages]
+`
+	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/tasks/mise.yml"), []byte(miseTasks), 0644); err != nil {
 		return err
 	}
 
