@@ -171,6 +171,11 @@ func (m *Manager) Apply(targets []Target, dryRun bool) ([]FileAction, error) {
 	}
 
 	wg.Wait()
+
+	// Clean up stale symlinks from layers that no longer apply
+	cleanActions := m.CleanStaleSymlinks(targets, files, dryRun)
+	actions = append(actions, cleanActions...)
+
 	return actions, nil
 }
 
@@ -251,6 +256,80 @@ func (m *Manager) createSymlink(source, target string) error {
 	return os.Symlink(source, target)
 }
 
+// CleanStaleSymlinks removes symlinks from inactive layers.
+// Instead of walking the entire home directory, it walks the inactive layer
+// directories in the dotfiles repo to find what WOULD have been linked, then
+// checks if those specific target paths are stale symlinks.
+func (m *Manager) CleanStaleSymlinks(targets []Target, currentFiles map[string]string, dryRun bool) []FileAction {
+	// Build set of current source paths for fast lookup
+	currentSources := make(map[string]bool)
+	for _, sourcePath := range currentFiles {
+		currentSources[sourcePath] = true
+	}
+
+	// Collect files from ALL layers (not just active ones) to find stale candidates
+	allFiles := make(map[string]string)
+	allLayers := []string{
+		filepath.Join(m.DotfilesDir, "dotfiles", "common"),
+		filepath.Join(m.DotfilesDir, "dotfiles", "workstation"),
+		filepath.Join(m.DotfilesDir, "dotfiles", "hosts", m.Hostname),
+	}
+	for _, layerDir := range allLayers {
+		m.walkLayerTargets(layerDir, targets, allFiles)
+	}
+
+	// Build target lookup
+	targetMap := make(map[string]Target)
+	for _, t := range targets {
+		targetMap[t.Name] = t
+	}
+
+	var actions []FileAction
+	for key, sourcePath := range allFiles {
+		// Skip files that are in the current active collection
+		if currentSources[sourcePath] {
+			continue
+		}
+
+		parts := strings.SplitN(key, ":", 2)
+		targetName := parts[0]
+		relPath := parts[1]
+		target, ok := targetMap[targetName]
+		if !ok {
+			continue
+		}
+
+		targetPath := filepath.Join(target.RootPath, relPath)
+
+		// Check if the target is a symlink pointing to this source
+		linkTarget, err := os.Readlink(targetPath)
+		if err != nil {
+			continue // Not a symlink or doesn't exist
+		}
+		if linkTarget != sourcePath {
+			continue // Points somewhere else, not ours to clean
+		}
+
+		action := FileAction{
+			RelPath:    relPath,
+			SourcePath: sourcePath,
+			TargetPath: targetPath,
+			Target:     targetName,
+			Action:     "cleaned",
+		}
+
+		if !dryRun {
+			if err := os.Remove(targetPath); err != nil {
+				action.Error = err
+			}
+		}
+
+		actions = append(actions, action)
+	}
+
+	return actions
+}
+
 // Status returns the current state of managed dotfiles
 func (m *Manager) Status(targets []Target) ([]FileAction, error) {
 	files, err := m.CollectFiles(targets)
@@ -311,7 +390,7 @@ func (m *Manager) Status(targets []Target) ([]FileAction, error) {
 
 // PrintActions prints a summary of actions
 func PrintActions(actions []FileAction, verbose bool) {
-	var linked, skipped, backed, errors int
+	var linked, skipped, backed, cleaned, errors int
 
 	for _, a := range actions {
 		prefix := ""
@@ -332,6 +411,11 @@ func PrintActions(actions []FileAction, verbose bool) {
 			if verbose {
 				fmt.Printf("  ✓ %s%s (backed up existing)\n", prefix, a.RelPath)
 			}
+		case "cleaned":
+			cleaned++
+			if verbose {
+				fmt.Printf("  - %s%s (removed stale symlink)\n", prefix, a.RelPath)
+			}
 		case "error":
 			errors++
 			fmt.Printf("  ✗ %s%s: %v\n", prefix, a.RelPath, a.Error)
@@ -350,7 +434,8 @@ func PrintActions(actions []FileAction, verbose bool) {
 		}
 	}
 
-	fmt.Printf("\nTotal: %d files\n", len(actions))
+	total := linked + skipped + backed + errors
+	fmt.Printf("\nTotal: %d files\n", total)
 	if linked > 0 {
 		fmt.Printf("  Linked: %d\n", linked)
 	}
@@ -359,6 +444,9 @@ func PrintActions(actions []FileAction, verbose bool) {
 	}
 	if skipped > 0 {
 		fmt.Printf("  Already correct: %d\n", skipped)
+	}
+	if cleaned > 0 {
+		fmt.Printf("  Cleaned stale: %d\n", cleaned)
 	}
 	if errors > 0 {
 		fmt.Printf("  Errors: %d\n", errors)
