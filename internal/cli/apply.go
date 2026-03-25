@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/simonm/dotgenie/internal/config"
@@ -364,10 +365,15 @@ func gitPullIfNeeded(dotfilesDir string) error {
 		return nil // No remote, skip
 	}
 
+	fmt.Print("─── Git Sync ───\nFetching remote changes... ")
+
 	// Fetch
-	fetchCmd := exec.Command("git", "fetch", "--quiet")
+	fetchCmd := exec.Command("git", "fetch")
 	fetchCmd.Dir = dotfilesDir
-	_ = fetchCmd.Run() // Ignore error - fetch failure is non-fatal
+	if err := fetchCmd.Run(); err != nil {
+		fmt.Println("failed (continuing without sync)")
+		return nil
+	}
 
 	// Check if behind
 	statusCmd := exec.Command("git", "status", "-uno", "--porcelain=v2", "--branch")
@@ -375,6 +381,8 @@ func gitPullIfNeeded(dotfilesDir string) error {
 	output, _ := statusCmd.Output()
 
 	if len(output) > 0 && contains(string(output), "behind") {
+		fmt.Println("updates available")
+
 		// Check for local changes
 		diffCmd := exec.Command("git", "diff", "--quiet")
 		diffCmd.Dir = dotfilesDir
@@ -382,7 +390,20 @@ func gitPullIfNeeded(dotfilesDir string) error {
 			return fmt.Errorf("remote has updates but you have local changes - run 'dotgenie sync' first")
 		}
 
-		fmt.Println("Pulling remote updates...")
+		// Show what changed
+		logCmd := exec.Command("git", "log", "--oneline", "HEAD..origin/HEAD", "--")
+		logCmd.Dir = dotfilesDir
+		logOutput, _ := logCmd.Output()
+		if len(logOutput) > 0 {
+			fmt.Println("  Incoming changes:")
+			for _, line := range strings.Split(strings.TrimSpace(string(logOutput)), "\n") {
+				if line != "" {
+					fmt.Printf("    %s\n", line)
+				}
+			}
+		}
+
+		fmt.Println("  Pulling...")
 		pullCmd := exec.Command("git", "pull", "--ff-only")
 		pullCmd.Dir = dotfilesDir
 		pullCmd.Stdout = os.Stdout
@@ -390,7 +411,9 @@ func gitPullIfNeeded(dotfilesDir string) error {
 		if err := pullCmd.Run(); err != nil {
 			return fmt.Errorf("git pull failed: %w", err)
 		}
-		fmt.Println("✓ Updated from remote")
+		fmt.Println("  ✓ Updated from remote")
+	} else {
+		fmt.Println("up to date")
 	}
 
 	return nil
