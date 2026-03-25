@@ -256,18 +256,35 @@ func (m *Manager) createSymlink(source, target string) error {
 	return os.Symlink(source, target)
 }
 
-// CleanStaleSymlinks removes symlinks from inactive layers.
-// Instead of walking the entire home directory, it walks the inactive layer
-// directories in the dotfiles repo to find what WOULD have been linked, then
-// checks if those specific target paths are stale symlinks.
+// CleanStaleSymlinks removes symlinks that are no longer valid. It handles two cases:
+//  1. Inactive layer files: symlinks from layers that no longer apply (e.g. workstation when on server)
+//  2. Deleted repo files: dangling symlinks pointing into the dotfiles repo for files that were removed
+//
+// For efficiency, it only scans directories known to contain managed symlinks rather than walking
+// the entire home directory.
 func (m *Manager) CleanStaleSymlinks(targets []Target, currentFiles map[string]string, dryRun bool) []FileAction {
-	// Build set of current source paths for fast lookup
-	currentSources := make(map[string]bool)
-	for _, sourcePath := range currentFiles {
-		currentSources[sourcePath] = true
+	dotfilesPrefix := filepath.Join(m.DotfilesDir, "dotfiles") + string(filepath.Separator)
+
+	// Build set of current target paths for fast lookup
+	targetMap := make(map[string]Target)
+	for _, t := range targets {
+		targetMap[t.Name] = t
 	}
 
-	// Collect files from ALL layers (not just active ones) to find stale candidates
+	currentTargetPaths := make(map[string]bool)
+	managedDirs := make(map[string]string) // dir -> targetName
+	for key := range currentFiles {
+		parts := strings.SplitN(key, ":", 2)
+		targetName := parts[0]
+		relPath := parts[1]
+		if t, ok := targetMap[targetName]; ok {
+			fullPath := filepath.Join(t.RootPath, relPath)
+			currentTargetPaths[fullPath] = true
+			managedDirs[filepath.Dir(fullPath)] = targetName
+		}
+	}
+
+	// Also include dirs from inactive layers to catch stale symlinks there
 	allFiles := make(map[string]string)
 	allLayers := []string{
 		filepath.Join(m.DotfilesDir, "dotfiles", "common"),
@@ -277,54 +294,64 @@ func (m *Manager) CleanStaleSymlinks(targets []Target, currentFiles map[string]s
 	for _, layerDir := range allLayers {
 		m.walkLayerTargets(layerDir, targets, allFiles)
 	}
-
-	// Build target lookup
-	targetMap := make(map[string]Target)
-	for _, t := range targets {
-		targetMap[t.Name] = t
-	}
-
-	var actions []FileAction
-	for key, sourcePath := range allFiles {
-		// Skip files that are in the current active collection
-		if currentSources[sourcePath] {
-			continue
-		}
-
+	for key := range allFiles {
 		parts := strings.SplitN(key, ":", 2)
 		targetName := parts[0]
 		relPath := parts[1]
-		target, ok := targetMap[targetName]
-		if !ok {
+		if t, ok := targetMap[targetName]; ok {
+			dir := filepath.Dir(filepath.Join(t.RootPath, relPath))
+			managedDirs[dir] = targetName
+		}
+	}
+
+	// Scan managed directories for stale symlinks pointing into our dotfiles repo
+	var actions []FileAction
+	for dir, targetName := range managedDirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
 			continue
 		}
 
-		targetPath := filepath.Join(target.RootPath, relPath)
-
-		// Check if the target is a symlink pointing to this source
-		linkTarget, err := os.Readlink(targetPath)
-		if err != nil {
-			continue // Not a symlink or doesn't exist
-		}
-		if linkTarget != sourcePath {
-			continue // Points somewhere else, not ours to clean
-		}
-
-		action := FileAction{
-			RelPath:    relPath,
-			SourcePath: sourcePath,
-			TargetPath: targetPath,
-			Target:     targetName,
-			Action:     "cleaned",
-		}
-
-		if !dryRun {
-			if err := os.Remove(targetPath); err != nil {
-				action.Error = err
+		for _, entry := range entries {
+			if entry.Type()&os.ModeSymlink == 0 {
+				continue
 			}
-		}
 
-		actions = append(actions, action)
+			entryPath := filepath.Join(dir, entry.Name())
+
+			// Skip if this is a current managed symlink
+			if currentTargetPaths[entryPath] {
+				continue
+			}
+
+			linkTarget, err := os.Readlink(entryPath)
+			if err != nil {
+				continue
+			}
+
+			// Only clean symlinks pointing into our dotfiles repo
+			if !strings.HasPrefix(linkTarget, dotfilesPrefix) {
+				continue
+			}
+
+			relPath, _ := filepath.Rel(targetMap[targetName].RootPath, entryPath)
+
+			action := FileAction{
+				RelPath:    relPath,
+				SourcePath: linkTarget,
+				TargetPath: entryPath,
+				Target:     targetName,
+				Action:     "cleaned",
+			}
+
+			if !dryRun {
+				if err := os.Remove(entryPath); err != nil {
+					action.Error = err
+				}
+			}
+
+			actions = append(actions, action)
+		}
 	}
 
 	return actions
