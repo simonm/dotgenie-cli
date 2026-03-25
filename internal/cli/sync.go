@@ -15,6 +15,7 @@ import (
 var (
 	syncNoPush bool
 	syncYes    bool
+	syncApply  bool
 )
 
 var syncCmd = &cobra.Command{
@@ -27,14 +28,17 @@ This will:
   2. Fetch from remote
   3. Pull if behind (stashing local changes if needed)
   4. Push local commits
+  5. Optionally apply dotfiles (with --apply)
 
-Use --no-push to skip pushing after syncing.`,
+Use --no-push to skip pushing after syncing.
+Use --apply to apply dotfiles after syncing.`,
 	RunE: runSync,
 }
 
 func init() {
 	syncCmd.Flags().BoolVarP(&syncNoPush, "no-push", "n", false, "Skip pushing after syncing")
 	syncCmd.Flags().BoolVarP(&syncYes, "yes", "y", false, "Auto-accept all prompts")
+	syncCmd.Flags().BoolVarP(&syncApply, "apply", "a", false, "Apply dotfiles after syncing")
 }
 
 func runSync(cmd *cobra.Command, args []string) error {
@@ -207,6 +211,13 @@ func runSync(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("\nSync complete!")
+
+	// Apply dotfiles if requested
+	if syncApply {
+		fmt.Println()
+		return runApply(cmd, args)
+	}
+
 	return nil
 }
 
