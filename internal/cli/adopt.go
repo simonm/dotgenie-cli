@@ -301,6 +301,21 @@ func gitCommitAdopted(dotfilesDir string) error {
 		return nil
 	}
 
+	// Build commit message with filepaths
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	files := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if len(line) > 3 {
+			files = append(files, strings.TrimSpace(line[2:]))
+		}
+	}
+	var msg strings.Builder
+	msg.WriteString("Adopt dotfiles via dotgenie\n")
+	for _, f := range files {
+		msg.WriteString("\n- ")
+		msg.WriteString(f)
+	}
+
 	// Add and commit
 	addCmd := execCommand("git", "add", "-A")
 	addCmd.Dir = dotfilesDir
@@ -308,7 +323,7 @@ func gitCommitAdopted(dotfilesDir string) error {
 		return err
 	}
 
-	commitCmd := execCommand("git", "commit", "-m", "Adopt dotfiles via dotgenie")
+	commitCmd := execCommand("git", "commit", "-m", msg.String())
 	commitCmd.Dir = dotfilesDir
 	return commitCmd.Run()
 }

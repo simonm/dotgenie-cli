@@ -155,7 +155,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("git stash failed: %w", err)
 			}
 
-			pullCmd := execCommand("git", "pull", "--ff-only")
+			pullCmd := execCommand("git", "pull", "--no-rebase")
 			pullCmd.Dir = paths.DotfilesDir
 			pullCmd.Stdout = os.Stdout
 			pullCmd.Stderr = os.Stderr
@@ -174,7 +174,7 @@ func runSync(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("stash pop failed (your changes are in 'git stash'): %w", err)
 			}
 		} else {
-			pullCmd := execCommand("git", "pull", "--ff-only")
+			pullCmd := execCommand("git", "pull", "--no-rebase")
 			pullCmd.Dir = paths.DotfilesDir
 			pullCmd.Stdout = os.Stdout
 			pullCmd.Stderr = os.Stderr

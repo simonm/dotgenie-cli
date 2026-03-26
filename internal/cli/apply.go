@@ -404,7 +404,7 @@ func gitPullIfNeeded(dotfilesDir string) error {
 		}
 
 		fmt.Println("  Pulling...")
-		pullCmd := exec.Command("git", "pull", "--ff-only")
+		pullCmd := exec.Command("git", "pull", "--no-rebase")
 		pullCmd.Dir = dotfilesDir
 		pullCmd.Stdout = os.Stdout
 		pullCmd.Stderr = os.Stderr
