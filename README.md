@@ -173,11 +173,9 @@ The upgrade replaces the running binary in-place. If the install directory is no
 |               +-- modprobe.d/
 |                   +-- iwlwifi.conf
 +-- packages/
-|   +-- common.yml            # System packages for all machines
-|   +-- mise.yml              # Dev tools installed via mise
-|   +-- workstation.yml       # GUI system packages
-|   +-- server.yml            # Server packages
-|   +-- arch.yml              # OS-specific (arch, ubuntu, debian, macos)
+|   +-- common.yml            # System packages + mise tools for all machines
+|   +-- workstation.yml       # Additional packages for desktops/laptops
+|   +-- server.yml            # Additional packages for servers
 +-- config.yml                # Shared config (committed)
 +-- config.local.yml          # Machine-specific config (gitignored)
 +-- README.md
@@ -208,49 +206,40 @@ Use `--system` flag with `apply` and `status` to include system targets.
 
 ## Package Management
 
-### System Packages
-
-System packages are installed via your OS package manager (yay on Arch, apt-get on Debian/Ubuntu, brew on macOS). Define them in YAML files under `packages/`:
+Package files follow the same layering as dotfiles: `common.yml` is always loaded, then the system type file (`workstation.yml` or `server.yml`) adds on top. Each file can contain both system packages and mise tools:
 
 ```yaml
-# packages/common.yml
+# packages/common.yml - installed on every machine
 packages:
   - git
   - curl
   - htop
   - fish
   - fd:
-      debian: fd-find    # Different name on Debian/Ubuntu
+      debian: fd-find    # OS-specific name mappings
       ubuntu: fd-find
-```
 
-On Arch, yay is auto-installed if missing and handles both official and AUR packages seamlessly:
-
-```yaml
-# packages/arch.yml
-packages:
-  - base-devel
-  - ghostty           # AUR package, yay handles it
-```
-
-### mise Tools
-
-Developer tools with frequent releases are managed by [mise](https://mise.jdx.dev), which installs the latest versions regardless of OS:
-
-```yaml
-# packages/mise.yml
 mise_packages:
   - node@lts
   - python@latest
-  - go@latest
-  - neovim@latest
-  - eza@latest
-  - starship@latest
   - bat@latest
   - ripgrep@latest
 ```
 
-mise is auto-installed if missing.
+```yaml
+# packages/workstation.yml - added on desktops/laptops
+packages:
+  - base-devel:
+      debian: build-essential
+  - ghostty             # AUR packages work on Arch (yay handles them)
+
+mise_packages:
+  - go@latest
+  - neovim@latest
+  - lazygit@latest
+```
+
+System packages are installed via yay (Arch), apt-get (Debian/Ubuntu), or brew (macOS). yay is auto-installed on Arch if missing. [mise](https://mise.jdx.dev) is auto-installed if missing.
 
 ## Configuration
 

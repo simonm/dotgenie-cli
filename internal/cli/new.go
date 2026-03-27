@@ -127,12 +127,11 @@ func runNew(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func createPackageFiles(dotfilesDir string, cfg *config.Config) error {
-	// Common packages (all systems) - only packages that should come from the
-	// system package manager. Tools with frequent releases (neovim, ripgrep,
-	// bat, etc.) are better installed via mise - see packages/mise.yml.
-	commonPkgs := `# System packages installed on all systems (via apt, pacman, or brew)
-# For tools that benefit from latest versions, see packages/mise.yml
+func createPackageFiles(dotfilesDir string, _ *config.Config) error {
+	// Common: system packages + mise tools for all machines
+	commonPkgs := `# Packages for all systems
+# System packages are installed via yay (Arch), apt-get (Debian/Ubuntu), or brew (macOS).
+# Mise packages get the latest versions regardless of OS (mise is auto-installed).
 packages:
   - git
   - curl
@@ -142,84 +141,59 @@ packages:
   - htop
   - tree
   - fish
-`
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/common.yml"), []byte(commonPkgs), 0644); err != nil {
-		return err
-	}
 
-	// Mise-managed tools (latest versions, cross-platform)
-	misePkgs := `# Tools installed via mise (https://mise.jdx.dev)
-# These get the latest versions regardless of OS, avoiding outdated system packages.
-# mise is installed automatically if not present.
 mise_packages:
   - node@lts
   - python@latest
-  - go@latest
-  - neovim@latest
-  - eza@latest
-  - starship@latest
   - bat@latest
   - ripgrep@latest
   - fd@latest
   - fzf@latest
   - jq@latest
-  - lazygit@latest
   - zoxide@latest
-  - tmux@latest
+  - starship@latest
+  - eza@latest
 `
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/mise.yml"), []byte(misePkgs), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/common.yml"), []byte(commonPkgs), 0644); err != nil {
 		return err
 	}
 
-	// Workstation packages (GUI systems)
-	workstationPkgs := `# Packages installed on workstations (desktop/laptop with GUI)
+	// Workstation: GUI apps + heavier dev tools
+	workstationPkgs := `# Additional packages for workstations (desktop/laptop with GUI)
+# These are additive on top of common.yml.
 packages:
+  - base-devel:
+      debian: build-essential
+      ubuntu: build-essential
   # - firefox
-  # - alacritty
-  # - ghostty  # Uncomment if using Ghostty terminal
+  # - ghostty
+
+mise_packages:
+  - go@latest
+  - rust@latest
+  - lazygit@latest
+  - neovim@latest
+  - yazi@latest
+  - tmux@latest
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/workstation.yml"), []byte(workstationPkgs), 0644); err != nil {
 		return err
 	}
 
-	// Server packages
-	serverPkgs := `# Packages installed on servers
+	// Server: minimal additions
+	serverPkgs := `# Additional packages for servers
+# These are additive on top of common.yml.
 packages:
+  - build-essential:
+      arch: base-devel
   # - docker
   # - nginx
+
+mise_packages:
+  - neovim@latest
+  - tmux@latest
 `
 	if err := os.WriteFile(filepath.Join(dotfilesDir, "packages/server.yml"), []byte(serverPkgs), 0644); err != nil {
-		return err
-	}
-
-	// OS-specific packages
-	osPkgs := map[string]string{
-		"arch": `# Arch Linux specific packages (yay handles pacman and AUR)
-packages:
-  # - base-devel
-  # - yay
-`,
-		"ubuntu": `# Ubuntu specific packages
-packages:
-  # - build-essential
-`,
-		"debian": `# Debian specific packages
-packages:
-  # - build-essential
-`,
-		"macos": `# macOS specific packages (via Homebrew)
-packages:
-  # - coreutils
-`,
-	}
-
-	// Write detected OS file, or default to arch
-	osContent, ok := osPkgs[cfg.OS]
-	if !ok {
-		osContent = osPkgs["arch"]
-	}
-	osFile := fmt.Sprintf("packages/%s.yml", cfg.OS)
-	if err := os.WriteFile(filepath.Join(dotfilesDir, osFile), []byte(osContent), 0644); err != nil {
 		return err
 	}
 

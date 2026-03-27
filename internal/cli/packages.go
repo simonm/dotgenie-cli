@@ -11,14 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// packageFile represents the YAML structure of a package list file
+// packageFile represents the YAML structure of a package list file.
+// Each file can contain both system packages and mise-managed tools.
 type packageFile struct {
-	Packages []interface{} `yaml:"packages"`
-}
-
-// miseFile represents the YAML structure of the mise package list
-type miseFile struct {
-	MisePackages []string `yaml:"mise_packages"`
+	Packages     []interface{} `yaml:"packages"`
+	MisePackages []string      `yaml:"mise_packages"`
 }
 
 // resolvePackageName takes a raw YAML item and OS string, returning the
@@ -77,14 +74,14 @@ func resolvePackageName(item interface{}, detectedOS string) string {
 }
 
 // loadPackageFiles loads and merges package list YAML files from the dotfiles
-// packages/ directory. It loads common.yml (required), then optional
-// OS-specific and system-type-specific files. It also loads mise.yml if
-// present.
+// packages/ directory. It loads common.yml (required), then the optional
+// system-type file (e.g. workstation.yml, server.yml). Both packages: and
+// mise_packages: are merged additively across files.
 func loadPackageFiles(dotfilesDir string, cfg *config.Config) (systemPkgs []string, misePkgs []string, err error) {
 	pkgDir := filepath.Join(dotfilesDir, "packages")
 
-	// Helper to load a single package file and resolve names
-	loadAndResolve := func(path string, required bool) ([]string, error) {
+	// Helper to load a single package file
+	loadFile := func(path string, required bool) (*packageFile, error) {
 		data, readErr := os.ReadFile(path)
 		if readErr != nil {
 			if os.IsNotExist(readErr) && !required {
@@ -97,49 +94,37 @@ func loadPackageFiles(dotfilesDir string, cfg *config.Config) (systemPkgs []stri
 		if parseErr := yaml.Unmarshal(data, &pf); parseErr != nil {
 			return nil, fmt.Errorf("parsing %s: %w", path, parseErr)
 		}
+		return &pf, nil
+	}
 
-		var resolved []string
+	// Merge a loaded file into the running lists
+	merge := func(pf *packageFile) {
+		if pf == nil {
+			return
+		}
 		for _, item := range pf.Packages {
 			name := resolvePackageName(item, cfg.OS)
 			if name != "" {
-				resolved = append(resolved, name)
+				systemPkgs = append(systemPkgs, name)
 			}
 		}
-		return resolved, nil
+		misePkgs = append(misePkgs, pf.MisePackages...)
 	}
 
 	// 1. common.yml (required)
-	common, err := loadAndResolve(filepath.Join(pkgDir, "common.yml"), true)
+	common, err := loadFile(filepath.Join(pkgDir, "common.yml"), true)
 	if err != nil {
 		return nil, nil, err
 	}
-	systemPkgs = append(systemPkgs, common...)
+	merge(common)
 
-	// 2. OS-specific (optional)
-	osPkgs, err := loadAndResolve(filepath.Join(pkgDir, cfg.OS+".yml"), false)
-	if err != nil {
-		return nil, nil, err
-	}
-	systemPkgs = append(systemPkgs, osPkgs...)
-
-	// 3. System-type-specific (optional)
-	typePkgs, err := loadAndResolve(filepath.Join(pkgDir, cfg.SystemType+".yml"), false)
-	if err != nil {
-		return nil, nil, err
-	}
-	systemPkgs = append(systemPkgs, typePkgs...)
-
-	// 4. mise.yml (optional)
-	misePath := filepath.Join(pkgDir, "mise.yml")
-	miseData, miseErr := os.ReadFile(misePath)
-	if miseErr == nil {
-		var mf miseFile
-		if parseErr := yaml.Unmarshal(miseData, &mf); parseErr != nil {
-			return nil, nil, fmt.Errorf("parsing %s: %w", misePath, parseErr)
+	// 2. System-type-specific (optional, e.g. workstation.yml, server.yml)
+	if cfg.SystemType != "" {
+		typePkgs, err := loadFile(filepath.Join(pkgDir, cfg.SystemType+".yml"), false)
+		if err != nil {
+			return nil, nil, err
 		}
-		misePkgs = mf.MisePackages
-	} else if !os.IsNotExist(miseErr) {
-		return nil, nil, fmt.Errorf("reading %s: %w", misePath, miseErr)
+		merge(typePkgs)
 	}
 
 	return systemPkgs, misePkgs, nil

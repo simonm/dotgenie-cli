@@ -83,20 +83,19 @@ func TestResolvePackageName(t *testing.T) {
 }
 
 func TestLoadPackageFiles(t *testing.T) {
-	t.Run("merges common, OS, and mise files", func(t *testing.T) {
+	t.Run("merges common and type files", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		pkgDir := filepath.Join(tmpDir, "packages")
 		if err := os.MkdirAll(pkgDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 
-		writeFile(t, filepath.Join(pkgDir, "common.yml"), "packages:\n  - git\n  - curl\n")
-		writeFile(t, filepath.Join(pkgDir, "arch.yml"), "packages:\n  - base-devel\n")
-		writeFile(t, filepath.Join(pkgDir, "mise.yml"), "mise_packages:\n  - node@lts\n  - python@latest\n")
+		writeFile(t, filepath.Join(pkgDir, "common.yml"), "packages:\n  - git\n  - curl\nmise_packages:\n  - node@lts\n")
+		writeFile(t, filepath.Join(pkgDir, "workstation.yml"), "packages:\n  - base-devel\nmise_packages:\n  - go@latest\n")
 
 		cfg := &config.Config{
 			OS:         "arch",
-			SystemType: "server",
+			SystemType: "workstation",
 			Hostname:   "testhost",
 		}
 
@@ -116,7 +115,7 @@ func TestLoadPackageFiles(t *testing.T) {
 			t.Errorf("expected 2 mise packages, got %d: %v", len(misePkgs), misePkgs)
 		}
 		assertContains(t, misePkgs, "node@lts")
-		assertContains(t, misePkgs, "python@latest")
+		assertContains(t, misePkgs, "go@latest")
 	})
 
 	t.Run("missing optional files do not cause errors", func(t *testing.T) {
