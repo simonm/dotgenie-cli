@@ -65,7 +65,7 @@ jobs:
           tar -czvf "dotgenie_${VERSION#v}_${ARCH_SUFFIX}.tar.gz" "$OUTPUT_NAME"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dotgenie-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm && format('-v{0}', matrix.goarm) || '' }}
           path: dotgenie_*.tar.gz
