@@ -26,7 +26,7 @@ var rootCmd = &cobra.Command{
 	Short: "A fast, simple dotfiles manager",
 	Long: `dotgenie is a fast, simple dotfiles manager that helps you:
   - Sync dotfiles across machines
-  - Install packages via Ansible
+  - Install packages via system package managers and mise
   - Manage host-specific configurations
 
 Get started:

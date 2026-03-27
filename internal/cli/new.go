@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const currentRepoVersion = 5
+const currentRepoVersion = 6
 
 var newCmd = &cobra.Command{
 	Use:   "new",
@@ -19,7 +19,7 @@ var newCmd = &cobra.Command{
 This creates a starter dotfiles repo with:
   - Directory structure (common/, workstation/, hosts/<hostname>/)
   - Example package files for your detected OS
-  - Ansible playbook and roles
+  - Package lists for system and mise tools
   - Initial config.yml
 
 After running this, you can:
@@ -56,7 +56,6 @@ func runNew(cmd *cobra.Command, args []string) error {
 		fmt.Sprintf("dotfiles/hosts/%s/home/.config", cfg.Hostname),
 		fmt.Sprintf("dotfiles/hosts/%s/etc", cfg.Hostname),
 		"packages",
-		"ansible/inventory",
 	}
 
 	for _, dir := range dirs {
@@ -72,12 +71,6 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Println("✓ Created package files")
-
-	// Create Ansible files
-	if err := writeAnsibleInfrastructure(paths.DotfilesDir); err != nil {
-		return err
-	}
-	fmt.Println("✓ Created Ansible playbook")
 
 	// Create shared config (committed to repo)
 	cfg.RepoVersion = currentRepoVersion
@@ -201,14 +194,10 @@ packages:
 
 	// OS-specific packages
 	osPkgs := map[string]string{
-		"arch": `# Arch Linux specific packages
+		"arch": `# Arch Linux specific packages (yay handles pacman and AUR)
 packages:
   # - base-devel
-  # - yay  # AUR helper
-
-# AUR packages (requires kewlfft.aur collection)
-aur_packages:
-  # - visual-studio-code-bin
+  # - yay
 `,
 		"ubuntu": `# Ubuntu specific packages
 packages:
@@ -231,213 +220,6 @@ packages:
 	}
 	osFile := fmt.Sprintf("packages/%s.yml", cfg.OS)
 	if err := os.WriteFile(filepath.Join(dotfilesDir, osFile), []byte(osContent), 0644); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func writeAnsibleInfrastructure(dotfilesDir string) error {
-	// Ensure directories exist (needed for both new repos and upgrades)
-	for _, dir := range []string{"ansible/collections", "ansible/inventory", "ansible/roles/packages/tasks", "ansible/roles/packages/defaults"} {
-		if err := os.MkdirAll(filepath.Join(dotfilesDir, dir), 0755); err != nil {
-			return err
-		}
-	}
-
-	// Collection requirements
-	requirements := `---
-collections:
-  - name: community.general
-  - name: kewlfft.aur
-`
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/collections/requirements.yml"), []byte(requirements), 0644); err != nil {
-		return err
-	}
-
-	// Inventory
-	inventory := `all:
-  hosts:
-    localhost:
-      ansible_connection: local
-      ansible_python_interpreter: "{{ ansible_playbook_python }}"
-`
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/inventory/localhost.yml"), []byte(inventory), 0644); err != nil {
-		return err
-	}
-
-	// Main playbook
-	playbook := `---
-- name: Configure system
-  hosts: localhost
-  become: false
-
-  vars:
-    dotgenie_os: "{{ lookup('env', 'DOTGENIE_OS') | default('arch', true) }}"
-    dotgenie_type: "{{ lookup('env', 'DOTGENIE_TYPE') | default('workstation', true) }}"
-    dotgenie_hostname: "{{ ansible_facts['hostname'] }}"
-    dotgenie_dir: "{{ lookup('env', 'HOME') }}/.dotfiles"
-
-  tasks:
-    - name: Include packages role
-      ansible.builtin.include_role:
-        name: packages
-      tags: [packages]
-`
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/playbook.yml"), []byte(playbook), 0644); err != nil {
-		return err
-	}
-
-	// Packages role - defaults
-	roleDefaults := `---
-packages: []
-aur_packages: []
-mise_packages: []
-continue_on_error: false
-`
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/defaults/main.yml"), []byte(roleDefaults), 0644); err != nil {
-		return err
-	}
-
-	// Packages role - tasks
-	// Each package file is loaded into a separate namespace to avoid overwriting,
-	// then the lists are merged together before installation.
-	roleTasks := `---
-# Load package definitions from each layer into separate namespaces
-- name: Load common packages
-  ansible.builtin.include_vars:
-    file: "{{ dotgenie_dir }}/packages/common.yml"
-    name: _common_pkgs
-  tags: [packages]
-
-- name: Load OS-specific packages
-  ansible.builtin.include_vars:
-    file: "{{ dotgenie_dir }}/packages/{{ dotgenie_os }}.yml"
-    name: _os_pkgs
-  failed_when: false
-  tags: [packages]
-
-- name: Load system type packages
-  ansible.builtin.include_vars:
-    file: "{{ dotgenie_dir }}/packages/{{ dotgenie_type }}.yml"
-    name: _type_pkgs
-  failed_when: false
-  tags: [packages]
-
-- name: Load mise packages
-  ansible.builtin.include_vars:
-    file: "{{ dotgenie_dir }}/packages/mise.yml"
-    name: _mise_pkgs
-  failed_when: false
-  tags: [packages]
-
-# Merge all package lists together
-- name: Combine package lists
-  ansible.builtin.set_fact:
-    packages: "{{ (_common_pkgs.packages | default([], true)) + (_os_pkgs.packages | default([], true)) + (_type_pkgs.packages | default([], true)) }}"
-    aur_packages: "{{ (_common_pkgs.aur_packages | default([], true)) + (_os_pkgs.aur_packages | default([], true)) + (_type_pkgs.aur_packages | default([], true)) }}"
-    mise_packages: "{{ _mise_pkgs.mise_packages | default([], true) }}"
-  tags: [packages]
-
-# Arch Linux (loaded conditionally so kewlfft.aur module is never parsed on other OSes)
-- name: Include Arch tasks
-  ansible.builtin.include_tasks: arch.yml
-  when: dotgenie_os == 'arch'
-  tags: [packages]
-
-# Debian/Ubuntu
-- name: Install packages (Debian/Ubuntu)
-  become: true
-  ansible.builtin.apt:
-    name: "{{ item.debian | default(item.ubuntu) | default(item) if item is mapping else item }}"
-    state: present
-  loop: "{{ packages }}"
-  when:
-    - dotgenie_os in ['debian', 'ubuntu']
-    - packages | length > 0
-  ignore_errors: "{{ continue_on_error }}"
-  tags: [packages]
-
-# macOS
-- name: Install packages (macOS)
-  community.general.homebrew:
-    name: "{{ item.macos | default(item) if item is mapping else item }}"
-    state: present
-  loop: "{{ packages }}"
-  when:
-    - dotgenie_os == 'macos'
-    - packages | length > 0
-  ignore_errors: "{{ continue_on_error }}"
-  tags: [packages]
-
-# mise-managed tools (latest versions, cross-platform)
-- name: Include mise tasks
-  ansible.builtin.include_tasks: mise.yml
-  when: mise_packages | length > 0
-  tags: [packages]
-
-# Custom local tasks (optional, never overwritten by dotgenie).
-# Create ansible/roles/packages/tasks/local.yml to add your own tasks.
-- name: Check for local customizations
-  ansible.builtin.stat:
-    path: "{{ role_path }}/tasks/local.yml"
-  register: _local_tasks
-  tags: [packages]
-
-- name: Include local customizations
-  ansible.builtin.include_tasks: local.yml
-  when: _local_tasks.stat.exists
-  tags: [packages]
-`
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/tasks/main.yml"), []byte(roleTasks), 0644); err != nil {
-		return err
-	}
-
-	// Arch-specific tasks (separate file so kewlfft.aur module is never parsed on other OSes)
-	archTasks := `---
-- name: Install packages (Arch)
-  become: true
-  community.general.pacman:
-    name: "{{ item.arch | default(item) if item is mapping else item }}"
-    state: present
-  loop: "{{ packages }}"
-  when:
-    - packages | length > 0
-    - (item is string) or (item.arch is defined) or (item[item | first] is not mapping)
-  ignore_errors: "{{ continue_on_error }}"
-  tags: [packages]
-
-- name: Install AUR packages (Arch)
-  become: true
-  become_user: "{{ ansible_user_id }}"
-  kewlfft.aur.aur:
-    name: "{{ item }}"
-    state: present
-  loop: "{{ aur_packages }}"
-  when: aur_packages | length > 0
-  ignore_errors: "{{ continue_on_error }}"
-  tags: [packages]
-`
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/tasks/arch.yml"), []byte(archTasks), 0644); err != nil {
-		return err
-	}
-
-	// Mise tasks (install mise + tools from mise_packages list)
-	miseTasks := `---
-- name: Install mise
-  ansible.builtin.shell: curl -fsSL https://mise.run | sh
-  args:
-    creates: "{{ ansible_env.HOME }}/.local/bin/mise"
-  tags: [packages]
-
-- name: Install mise packages
-  ansible.builtin.command: "{{ ansible_env.HOME }}/.local/bin/mise use -g {{ item }}"
-  loop: "{{ mise_packages }}"
-  register: _mise_result
-  changed_when: "'installed' in _mise_result.stderr"
-  tags: [packages]
-`
-	if err := os.WriteFile(filepath.Join(dotfilesDir, "ansible/roles/packages/tasks/mise.yml"), []byte(miseTasks), 0644); err != nil {
 		return err
 	}
 

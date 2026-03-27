@@ -124,25 +124,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("✓ Shared configuration saved to %s\n", configPath)
 	}
 
-	// Install Ansible collections if requirements.yml exists
-	requirementsFile := filepath.Join(paths.DotfilesDir, "ansible", "collections", "requirements.yml")
-	if _, err := os.Stat(requirementsFile); err == nil {
-		if err := ensureDep("ansible-galaxy", "ansible", config.DetectOS()); err != nil {
-			fmt.Printf("Warning: %v\n", err)
-			fmt.Println("You can install Ansible later and run 'dotgenie init' again")
-		} else {
-			fmt.Println("\nInstalling Ansible collections...")
-			ansibleCmd := exec.Command("ansible-galaxy", "collection", "install", "-r", requirementsFile)
-			ansibleCmd.Stdout = os.Stdout
-			ansibleCmd.Stderr = os.Stderr
-			if err := ansibleCmd.Run(); err != nil {
-				fmt.Printf("Warning: Failed to install Ansible collections: %v\n", err)
-			} else {
-				fmt.Println("Ansible collections installed")
-			}
-		}
-	}
-
 	fmt.Printf("\n✓ Initialization complete!\n\n")
 	fmt.Printf("Next steps:\n")
 	fmt.Printf("  dotgenie apply           # Link dotfiles and install packages\n")

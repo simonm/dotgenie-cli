@@ -18,7 +18,6 @@ var (
 	applyDryRun          bool
 	applyContinueOnError bool
 	applyVerbose         bool
-	applyAskBecomePass   bool
 )
 
 var applyCmd = &cobra.Command{
@@ -30,14 +29,12 @@ common/, workstation/, and hosts/<hostname>/.
 Both home (~/) and system files (/etc, /var, /usr) are checked.
 If system files need changes, you'll be prompted before sudo runs.
 
-Use --packages to also install packages via Ansible.
-Use -K to prompt for sudo password when installing packages.`,
+Use --packages to also install system packages and mise tools.`,
 	RunE: runApply,
 }
 
 func init() {
-	applyCmd.Flags().BoolVarP(&applyWithPackages, "packages", "p", false, "Also install packages via Ansible")
-	applyCmd.Flags().BoolVarP(&applyAskBecomePass, "ask-become-pass", "K", false, "Prompt for sudo password (for Ansible)")
+	applyCmd.Flags().BoolVarP(&applyWithPackages, "packages", "p", false, "Also install packages")
 	applyCmd.Flags().BoolVarP(&applyDryRun, "dry-run", "n", false, "Show what would be done without making changes")
 	applyCmd.Flags().BoolVarP(&applyContinueOnError, "continue-on-error", "k", false, "Continue even if some packages fail")
 	applyCmd.Flags().BoolVarP(&applyVerbose, "verbose", "v", false, "Show detailed output")
@@ -57,31 +54,12 @@ func runApply(cmd *cobra.Command, args []string) error {
 
 	// Check if repo infrastructure needs upgrading
 	if cfg.RepoVersion < currentRepoVersion {
-		fmt.Printf("Updating repo to dotgenie format version %d...\n", currentRepoVersion)
-
-		// Regenerate all infrastructure files
-		if err := writeAnsibleInfrastructure(paths.DotfilesDir); err != nil {
-			return fmt.Errorf("upgrading repo infrastructure: %w", err)
-		}
-
-		// If this is a legacy config (no config.local.yml yet), split it
-		localConfigPath := filepath.Join(paths.DotfilesDir, "config.local.yml")
-		if _, err := os.Stat(localConfigPath); os.IsNotExist(err) {
-			if err := cfg.SaveLocal(localConfigPath); err != nil {
-				fmt.Printf("Warning: failed to create config.local.yml: %v\n", err)
-			} else {
-				fmt.Println("Created config.local.yml (machine-specific config)")
-			}
-		}
-
-		// Update repo version and save shared config
+		// Update repo version
 		cfg.RepoVersion = currentRepoVersion
 		configPath := filepath.Join(paths.DotfilesDir, "config.yml")
 		if err := cfg.SaveShared(configPath); err != nil {
 			return fmt.Errorf("saving updated config: %w", err)
 		}
-
-		fmt.Println("Repo infrastructure updated successfully")
 	}
 
 	// Auto-pull if enabled (check git is available first)
@@ -283,72 +261,7 @@ func runApplySystemInternal(cmd *cobra.Command, args []string) error {
 }
 
 func applyPackages(paths config.Paths, cfg *config.Config) error {
-	fmt.Println("\n─── Packages ───")
-
-	playbookPath := filepath.Join(paths.DotfilesDir, "ansible", "playbook.yml")
-	if _, err := os.Stat(playbookPath); os.IsNotExist(err) {
-		fmt.Println("No ansible/playbook.yml found, skipping packages")
-		return nil
-	}
-
-	// Ensure ansible is installed
-	if err := ensureDep("ansible-playbook", "ansible", cfg.OS); err != nil {
-		return err
-	}
-
-	// Install Ansible collections if requirements.yml exists
-	requirementsFile := filepath.Join(paths.DotfilesDir, "ansible", "collections", "requirements.yml")
-	if _, err := os.Stat(requirementsFile); err == nil {
-		fmt.Println("Installing Ansible collections...")
-		galaxyCmd := exec.Command("ansible-galaxy", "collection", "install", "-r", requirementsFile)
-		galaxyCmd.Stdout = os.Stdout
-		galaxyCmd.Stderr = os.Stderr
-		if err := galaxyCmd.Run(); err != nil {
-			return fmt.Errorf("failed to install Ansible collections: %w", err)
-		}
-	}
-
-	if applyDryRun {
-		fmt.Println("(dry run - no changes will be made)")
-	}
-
-	// Build ansible-playbook command
-	ansibleArgs := []string{
-		playbookPath,
-		"-i", filepath.Join(paths.DotfilesDir, "ansible", "inventory", "localhost.yml"),
-		"-e", fmt.Sprintf("dotgenie_os=%s", cfg.OS),
-		"-e", fmt.Sprintf("dotgenie_type=%s", cfg.SystemType),
-		"-e", fmt.Sprintf("dotgenie_hostname=%s", cfg.Hostname),
-		"-e", fmt.Sprintf("dotgenie_dir=%s", paths.DotfilesDir),
-		"--tags", "packages",
-	}
-
-	if applyDryRun {
-		ansibleArgs = append(ansibleArgs, "--check")
-	}
-	if applyContinueOnError {
-		ansibleArgs = append(ansibleArgs, "-e", "continue_on_error=true")
-	}
-	if applyVerbose {
-		ansibleArgs = append(ansibleArgs, "-v")
-	} else {
-		ansibleArgs = append(ansibleArgs, "--diff")
-	}
-	if applyAskBecomePass {
-		ansibleArgs = append(ansibleArgs, "-K")
-	}
-
-	ansibleCmd := exec.Command("ansible-playbook", ansibleArgs...)
-	ansibleCmd.Stdout = os.Stdout
-	ansibleCmd.Stderr = os.Stderr
-	ansibleCmd.Stdin = os.Stdin
-	ansibleCmd.Dir = filepath.Join(paths.DotfilesDir, "ansible")
-
-	if err := ansibleCmd.Run(); err != nil {
-		return fmt.Errorf("ansible-playbook failed: %w", err)
-	}
-
-	return nil
+	return applyPackagesNew(paths, cfg, applyDryRun, applyContinueOnError, applyVerbose)
 }
 
 func gitPullIfNeeded(dotfilesDir string) error {

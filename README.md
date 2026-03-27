@@ -5,10 +5,10 @@ A fast, simple dotfiles manager written in Go.
 ## Features
 
 - **Fast parallel symlinking** - Links hundreds of dotfiles in milliseconds
-- **Layered configuration** - `common/` → `workstation/` → `hosts/<hostname>/`
+- **Layered configuration** - `common/` -> `workstation/` -> `hosts/<hostname>/`
 - **Multi-target support** - Manage `home/`, `etc/`, `var/`, `usr/` files
 - **Direct symlinks** - Edit `~/.config/foo` and it edits your managed file
-- **Package management** - Ansible handles package installation
+- **Package management** - System packages via yay/apt/brew, dev tools via mise
 - **Cross-platform** - Linux (Arch, Ubuntu, Debian) and macOS
 
 ## Installation
@@ -21,7 +21,7 @@ Or download from [releases](https://github.com/simonm/dotgenie-cli/releases).
 
 ### Dependencies
 
-dotgenie requires `git` for repository operations and `ansible` for package management. If these are missing, dotgenie will detect your OS and offer to install them automatically using your system package manager (brew, pacman, or apt-get).
+dotgenie requires `git` for repository operations. For package installation, it calls your system package manager directly (yay on Arch, apt-get on Debian/Ubuntu, brew on macOS) and uses [mise](https://mise.jdx.dev) for developer tools. Missing tools are detected and offered for automatic installation.
 
 ## Quick Start
 
@@ -39,7 +39,7 @@ dotgenie adopt ~/.bashrc
 $EDITOR ~/.dotfiles/packages/common.yml
 
 # Apply (links dotfiles and installs packages)
-dotgenie apply
+dotgenie apply --packages
 
 # Push to GitHub
 cd ~/.dotfiles
@@ -55,7 +55,7 @@ git push -u origin main
 dotgenie init https://github.com/YOU/dotfiles
 
 # Apply dotfiles and install packages
-dotgenie apply
+dotgenie apply --packages
 ```
 
 ## Commands
@@ -64,7 +64,7 @@ dotgenie apply
 |---------|-------------|
 | `new` | Create a new dotfiles repository with starter structure |
 | `init [repo]` | Clone existing dotfiles repo and configure |
-| `apply` | Link dotfiles and install packages |
+| `apply` | Link dotfiles and optionally install packages |
 | `status` | Show status of managed dotfiles |
 | `adopt <path>` | Import existing configs into management |
 | `forget <path>` | Remove configs from management |
@@ -83,16 +83,14 @@ dotgenie new --dotfiles ~/dots    # Create at custom location
 This creates:
 - Directory structure for all layers
 - Example package files for your detected OS
-- Ansible playbook and roles
+- mise tool list for dev tools
 - README and .gitignore
 
 ### apply
 
 ```bash
-dotgenie apply                    # Link home files and install packages
-dotgenie apply --system           # Also link system files (etc/, var/) with sudo
-dotgenie apply --dotfiles-only    # Only link dotfiles, skip packages
-dotgenie apply --packages-only    # Only install packages, skip dotfiles
+dotgenie apply                    # Link home dotfiles only
+dotgenie apply --packages         # Also install system packages and mise tools
 dotgenie apply --dry-run          # Preview changes without making them
 dotgenie apply --verbose          # Show all files being processed
 ```
@@ -102,10 +100,10 @@ dotgenie apply --verbose          # Show all files being processed
 Import existing configuration files into management:
 
 ```bash
-dotgenie adopt ~/.config/nvim                              # → common/home/
-dotgenie adopt --scope workstation ~/.config/hypr          # → workstation/home/
-dotgenie adopt --scope host ~/.config/monitors.xml         # → hosts/<hostname>/home/
-dotgenie adopt --scope host /etc/modprobe.d/iwlwifi.conf   # → hosts/<hostname>/etc/
+dotgenie adopt ~/.config/nvim                              # -> common/home/
+dotgenie adopt --scope workstation ~/.config/hypr          # -> workstation/home/
+dotgenie adopt --scope host ~/.config/monitors.xml         # -> hosts/<hostname>/home/
+dotgenie adopt --scope host /etc/modprobe.d/iwlwifi.conf   # -> hosts/<hostname>/etc/
 dotgenie adopt --copy-only ~/.bashrc                       # Copy without symlinking
 dotgenie adopt -y ~/.config/*                              # Skip confirmation
 ```
@@ -133,8 +131,10 @@ dotgenie status --system          # Also check system files (etc/, var/)
 ### sync
 
 ```bash
-dotgenie sync                     # Fetch and pull if behind
-dotgenie sync --push              # Also push local commits
+dotgenie sync                     # Commit, fetch, pull, push
+dotgenie sync -y                  # Auto-accept all prompts
+dotgenie sync -ya                 # Sync and apply dotfiles
+dotgenie sync --no-push           # Skip pushing
 ```
 
 ### upgrade
@@ -152,39 +152,35 @@ The upgrade replaces the running binary in-place. If the install directory is no
 
 ```
 ~/.dotfiles/
-├── dotfiles/
-│   ├── common/
-│   │   ├── home/             # → $HOME (all systems)
-│   │   │   └── .config/
-│   │   │       └── nvim/
-│   │   └── etc/              # → /etc (all systems, requires sudo)
-│   │       └── environment.d/
-│   ├── workstation/
-│   │   ├── home/             # → $HOME (desktops/laptops)
-│   │   │   └── .config/
-│   │   │       └── hypr/
-│   │   └── etc/              # → /etc (desktops/laptops)
-│   │       └── udev/rules.d/
-│   └── hosts/
-│       └── xenon/
-│           ├── home/         # → $HOME (this host only)
-│           │   └── .config/
-│           └── etc/          # → /etc (this host only)
-│               └── modprobe.d/
-│                   └── iwlwifi.conf
-├── packages/
-│   ├── common.yml            # All systems
-│   ├── workstation.yml       # GUI systems
-│   ├── server.yml            # Servers
-│   └── arch.yml              # OS-specific (arch, ubuntu, debian, macos)
-├── ansible/
-│   ├── playbook.yml
-│   ├── inventory/
-│   │   └── localhost.yml
-│   └── roles/
-│       └── packages/
-├── config.yml                # Generated by init/new
-└── README.md
++-- dotfiles/
+|   +-- common/
+|   |   +-- home/             # -> $HOME (all systems)
+|   |   |   +-- .config/
+|   |   |       +-- nvim/
+|   |   +-- etc/              # -> /etc (all systems, requires sudo)
+|   |       +-- environment.d/
+|   +-- workstation/
+|   |   +-- home/             # -> $HOME (desktops/laptops)
+|   |   |   +-- .config/
+|   |   |       +-- hypr/
+|   |   +-- etc/              # -> /etc (desktops/laptops)
+|   |       +-- udev/rules.d/
+|   +-- hosts/
+|       +-- xenon/
+|           +-- home/         # -> $HOME (this host only)
+|           |   +-- .config/
+|           +-- etc/          # -> /etc (this host only)
+|               +-- modprobe.d/
+|                   +-- iwlwifi.conf
++-- packages/
+|   +-- common.yml            # System packages for all machines
+|   +-- mise.yml              # Dev tools installed via mise
+|   +-- workstation.yml       # GUI system packages
+|   +-- server.yml            # Server packages
+|   +-- arch.yml              # OS-specific (arch, ubuntu, debian, macos)
++-- config.yml                # Shared config (committed)
++-- config.local.yml          # Machine-specific config (gitignored)
++-- README.md
 ```
 
 ### Layering
@@ -212,42 +208,67 @@ Use `--system` flag with `apply` and `status` to include system targets.
 
 ## Package Management
 
-Packages are defined in YAML files under `packages/`:
+### System Packages
+
+System packages are installed via your OS package manager (yay on Arch, apt-get on Debian/Ubuntu, brew on macOS). Define them in YAML files under `packages/`:
 
 ```yaml
 # packages/common.yml
 packages:
   - git
-  - neovim
-  - ripgrep
+  - curl
+  - htop
+  - fish
   - fd:
       debian: fd-find    # Different name on Debian/Ubuntu
       ubuntu: fd-find
 ```
 
-For Arch Linux, you can also install AUR packages:
+On Arch, yay is auto-installed if missing and handles both official and AUR packages seamlessly:
 
 ```yaml
 # packages/arch.yml
 packages:
   - base-devel
-
-aur_packages:
-  - visual-studio-code-bin
-  - spotify
+  - ghostty           # AUR package, yay handles it
 ```
+
+### mise Tools
+
+Developer tools with frequent releases are managed by [mise](https://mise.jdx.dev), which installs the latest versions regardless of OS:
+
+```yaml
+# packages/mise.yml
+mise_packages:
+  - node@lts
+  - python@latest
+  - go@latest
+  - neovim@latest
+  - eza@latest
+  - starship@latest
+  - bat@latest
+  - ripgrep@latest
+```
+
+mise is auto-installed if missing.
 
 ## Configuration
 
-`config.yml` is created during `dotgenie new` or `dotgenie init`:
+`config.yml` (committed) holds shared preferences:
+
+```yaml
+repo_version: 6
+auto_pull_before_apply: true
+auto_commit_after_adopt: true
+auto_push_after_adopt: false
+```
+
+`config.local.yml` (gitignored) holds machine-specific settings:
 
 ```yaml
 os: arch
 system_type: workstation
 hostname: xenon
-auto_pull_before_apply: true
-auto_commit_after_adopt: true
-auto_push_after_adopt: false
 ```
 
 ## Building from Source
