@@ -244,7 +244,7 @@ func installYay(dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("creating temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	// Clone yay-bin
 	cloneCmd := exec.Command("git", "clone", "https://aur.archlinux.org/yay-bin.git", filepath.Join(tmpDir, "yay-bin"))

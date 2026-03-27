@@ -159,7 +159,7 @@ func applyAllDotfiles(paths config.Paths, cfg *config.Config) error {
 			// Prompt user before running sudo
 			fmt.Print("\nSystem files need updating. Run with sudo? [y/N] ")
 			var response string
-			fmt.Scanln(&response)
+			_, _ = fmt.Scanln(&response)
 			if response == "y" || response == "Y" || response == "yes" {
 				if err := applySystemFilesWithSudo(paths, cfg, systemTargets); err != nil {
 					return err

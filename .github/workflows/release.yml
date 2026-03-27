@@ -32,7 +32,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.26'
 
       - name: Get version
         id: version
@@ -83,7 +83,7 @@ jobs:
           merge-multiple: true
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: artifacts/dotgenie_*.tar.gz
           generate_release_notes: true

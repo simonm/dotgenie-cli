@@ -104,13 +104,13 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
-	resp, err := http.Get(downloadURL)
+	resp, err := http.Get(downloadURL) //nolint:gosec // URL is constructed from known GitHub API response
 	if err != nil {
 		return fmt.Errorf("failed to download: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
@@ -121,7 +121,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to decompress: %w", err)
 	}
-	defer gzr.Close()
+	defer func() { _ = gzr.Close() }()
 
 	tr := tar.NewReader(gzr)
 	var newBinaryPath string
@@ -142,10 +142,10 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("failed to create binary: %w", err)
 			}
 			if _, err := io.Copy(f, tr); err != nil {
-				f.Close()
+				_ = f.Close()
 				return fmt.Errorf("failed to write binary: %w", err)
 			}
-			f.Close()
+			_ = f.Close()
 			break
 		}
 	}
