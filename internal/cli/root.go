@@ -32,6 +32,7 @@ var rootCmd = &cobra.Command{
 Get started:
   dotgenie init https://github.com/you/dotfiles
   dotgenie apply`,
+	SilenceUsage: true,
 }
 
 func Execute() error {

@@ -338,22 +338,24 @@ func installMisePackages(pkgs []string, miseBin string, dryRun, verbose bool) er
 		return nil
 	}
 
-	fmt.Printf("  Installing %d mise packages...\n", len(pkgs))
+	for i, pkg := range pkgs {
+		fmt.Printf("  [%d/%d] %s... ", i+1, len(pkgs), pkg)
 
-	for _, pkg := range pkgs {
 		cmd := exec.Command(miseBin, "use", "-g", pkg)
 		cmd.Stdin = os.Stdin
 		if verbose {
+			fmt.Println()
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		}
 
 		if err := cmd.Run(); err != nil {
+			fmt.Println("failed")
 			return fmt.Errorf("mise install %s failed: %w", pkg, err)
 		}
 
-		if verbose {
-			fmt.Printf("  Installed %s\n", pkg)
+		if !verbose {
+			fmt.Println("ok")
 		}
 	}
 
