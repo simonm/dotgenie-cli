@@ -338,6 +338,7 @@ func installMisePackages(pkgs []string, miseBin string, dryRun, verbose bool) er
 		return nil
 	}
 
+	var failed []string
 	for i, pkg := range pkgs {
 		fmt.Printf("  [%d/%d] %s... ", i+1, len(pkgs), pkg)
 
@@ -350,12 +351,20 @@ func installMisePackages(pkgs []string, miseBin string, dryRun, verbose bool) er
 		}
 
 		if err := cmd.Run(); err != nil {
-			fmt.Println("failed")
-			return fmt.Errorf("mise install %s failed: %w", pkg, err)
+			fmt.Println("skipped")
+			failed = append(failed, pkg)
+			continue
 		}
 
 		if !verbose {
 			fmt.Println("ok")
+		}
+	}
+
+	if len(failed) > 0 {
+		fmt.Printf("\n  Warning: %d mise package(s) failed to install:\n", len(failed))
+		for _, pkg := range failed {
+			fmt.Printf("    - %s\n", pkg)
 		}
 	}
 
