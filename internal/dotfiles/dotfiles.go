@@ -76,11 +76,11 @@ func (m *Manager) CollectFiles(targets []Target) (map[string]string, error) {
 		return nil, fmt.Errorf("walking common: %w", err)
 	}
 
-	// Layer 2: system type (if workstation)
-	if m.SystemType == "workstation" {
-		workstationDir := filepath.Join(m.DotfilesDir, "dotfiles", "workstation")
-		if err := m.walkLayerTargets(workstationDir, targets, files); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("walking workstation: %w", err)
+	// Layer 2: system type (if directory exists)
+	if m.SystemType != "" {
+		typeDir := filepath.Join(m.DotfilesDir, "dotfiles", m.SystemType)
+		if err := m.walkLayerTargets(typeDir, targets, files); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("walking %s: %w", m.SystemType, err)
 		}
 	}
 
@@ -284,15 +284,26 @@ func (m *Manager) CleanStaleSymlinks(targets []Target, currentFiles map[string]s
 		}
 	}
 
-	// Also include dirs from inactive layers to catch stale symlinks there
+	// Also include dirs from ALL layers (including inactive ones) to catch stale symlinks.
+	// Discover layers dynamically by scanning the dotfiles directory.
 	allFiles := make(map[string]string)
-	allLayers := []string{
-		filepath.Join(m.DotfilesDir, "dotfiles", "common"),
-		filepath.Join(m.DotfilesDir, "dotfiles", "workstation"),
-		filepath.Join(m.DotfilesDir, "dotfiles", "hosts", m.Hostname),
-	}
-	for _, layerDir := range allLayers {
-		m.walkLayerTargets(layerDir, targets, allFiles)
+	dotfilesRoot := filepath.Join(m.DotfilesDir, "dotfiles")
+	entries, _ := os.ReadDir(dotfilesRoot)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if entry.Name() == "hosts" {
+			// Walk all host directories
+			hostEntries, _ := os.ReadDir(filepath.Join(dotfilesRoot, "hosts"))
+			for _, hostEntry := range hostEntries {
+				if hostEntry.IsDir() {
+					m.walkLayerTargets(filepath.Join(dotfilesRoot, "hosts", hostEntry.Name()), targets, allFiles)
+				}
+			}
+		} else {
+			m.walkLayerTargets(filepath.Join(dotfilesRoot, entry.Name()), targets, allFiles)
+		}
 	}
 	for key := range allFiles {
 		parts := strings.SplitN(key, ":", 2)
