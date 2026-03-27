@@ -168,7 +168,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	backupPath := execPath + ".old"
 
 	// Remove any existing backup first
-	os.Remove(backupPath)
+	_ = os.Remove(backupPath)
 
 	// Rename current binary to backup (allowed even while running)
 	if err := os.Rename(execPath, backupPath); err != nil {
@@ -178,12 +178,12 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	// Copy new binary to original path (not rename, since it might be cross-device)
 	if err := copyFileForUpgrade(newBinaryPath, execPath); err != nil {
 		// Try to restore backup
-		os.Rename(backupPath, execPath)
+		_ = os.Rename(backupPath, execPath)
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
 
 	// Remove backup (might fail on Windows, that's ok)
-	os.Remove(backupPath)
+	_ = os.Remove(backupPath)
 
 	fmt.Printf("Successfully upgraded to %s\n", latest.TagName)
 	return nil
@@ -239,8 +239,8 @@ func checkDirWritable(dir string) error {
 	if err != nil {
 		return err
 	}
-	f.Close()
-	os.Remove(testFile)
+	_ = f.Close()
+	_ = os.Remove(testFile)
 	return nil
 }
 
