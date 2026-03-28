@@ -225,7 +225,7 @@ func (m *Manager) processFile(target Target, relPath, sourcePath string, dryRun 
 		// Wrong symlink - replace it
 		action.Action = "link"
 		if !dryRun {
-			os.Remove(targetPath)
+			_ = os.Remove(targetPath)
 			if err := m.createSymlink(sourcePath, targetPath); err != nil {
 				action.Error = err
 			}
@@ -298,11 +298,11 @@ func (m *Manager) CleanStaleSymlinks(targets []Target, currentFiles map[string]s
 			hostEntries, _ := os.ReadDir(filepath.Join(dotfilesRoot, "hosts"))
 			for _, hostEntry := range hostEntries {
 				if hostEntry.IsDir() {
-					m.walkLayerTargets(filepath.Join(dotfilesRoot, "hosts", hostEntry.Name()), targets, allFiles)
+					_ = m.walkLayerTargets(filepath.Join(dotfilesRoot, "hosts", hostEntry.Name()), targets, allFiles)
 				}
 			}
 		} else {
-			m.walkLayerTargets(filepath.Join(dotfilesRoot, entry.Name()), targets, allFiles)
+			_ = m.walkLayerTargets(filepath.Join(dotfilesRoot, entry.Name()), targets, allFiles)
 		}
 	}
 	for key := range allFiles {

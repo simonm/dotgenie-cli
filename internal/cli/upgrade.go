@@ -194,7 +194,7 @@ func getLatestRelease() (*githubRelease, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
@@ -217,10 +217,10 @@ func isNewerVersion(v1, v2 string) bool {
 	for i := 0; i < 3; i++ {
 		var n1, n2 int
 		if i < len(v1Parts) {
-			fmt.Sscanf(v1Parts[i], "%d", &n1)
+			_, _ = fmt.Sscanf(v1Parts[i], "%d", &n1)
 		}
 		if i < len(v2Parts) {
-			fmt.Sscanf(v2Parts[i], "%d", &n2)
+			_, _ = fmt.Sscanf(v2Parts[i], "%d", &n2)
 		}
 		if n1 > n2 {
 			return true
@@ -249,13 +249,13 @@ func copyFileForUpgrade(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 
 	out, err := os.Create(dst)
 	if err != nil {
 		return err
 	}
-	defer out.Close()
+	defer func() { _ = out.Close() }()
 
 	if _, err := io.Copy(out, in); err != nil {
 		return err
