@@ -22,6 +22,10 @@ type Config struct {
 	AutoPullBeforeApply  bool `yaml:"auto_pull_before_apply"`
 	AutoCommitAfterAdopt bool `yaml:"auto_commit_after_adopt"`
 	AutoPushAfterAdopt   bool `yaml:"auto_push_after_adopt"`
+	UpdateCheckDays      int  `yaml:"update_check_days,omitempty"`
+
+	// Local-only (not serialized to shared config)
+	LastUpdateCheck string `yaml:"last_update_check,omitempty"`
 }
 
 // SharedConfig holds fields that belong in the shared config.yml (committed to git)
@@ -30,13 +34,15 @@ type SharedConfig struct {
 	AutoPullBeforeApply  bool `yaml:"auto_pull_before_apply"`
 	AutoCommitAfterAdopt bool `yaml:"auto_commit_after_adopt"`
 	AutoPushAfterAdopt   bool `yaml:"auto_push_after_adopt"`
+	UpdateCheckDays      int  `yaml:"update_check_days,omitempty"`
 }
 
 // LocalConfig holds fields that belong in config.local.yml (machine-specific, gitignored)
 type LocalConfig struct {
-	OS         string `yaml:"os"`
-	SystemType string `yaml:"system_type"`
-	Hostname   string `yaml:"hostname"`
+	OS               string `yaml:"os"`
+	SystemType       string `yaml:"system_type"`
+	Hostname         string `yaml:"hostname"`
+	LastUpdateCheck  string `yaml:"last_update_check,omitempty"`
 }
 
 // Paths holds the important directories
@@ -92,6 +98,7 @@ func Load(path string) (*Config, error) {
 		if local.Hostname != "" {
 			cfg.Hostname = local.Hostname
 		}
+		cfg.LastUpdateCheck = local.LastUpdateCheck
 	} else if os.IsNotExist(localErr) && cfg.OS == "" {
 		// New-style repo without a local config -- auto-detect and create it
 		cfg.OS = DetectOS()
@@ -130,6 +137,7 @@ func (c *Config) SaveShared(path string) error {
 		AutoPullBeforeApply:  c.AutoPullBeforeApply,
 		AutoCommitAfterAdopt: c.AutoCommitAfterAdopt,
 		AutoPushAfterAdopt:   c.AutoPushAfterAdopt,
+		UpdateCheckDays:      c.UpdateCheckDays,
 	}
 	data, err := yaml.Marshal(&shared)
 	if err != nil {
@@ -141,9 +149,10 @@ func (c *Config) SaveShared(path string) error {
 // SaveLocal writes only the local config fields to the given path
 func (c *Config) SaveLocal(path string) error {
 	local := LocalConfig{
-		OS:         c.OS,
-		SystemType: c.SystemType,
-		Hostname:   c.Hostname,
+		OS:              c.OS,
+		SystemType:      c.SystemType,
+		Hostname:        c.Hostname,
+		LastUpdateCheck: c.LastUpdateCheck,
 	}
 	data, err := yaml.Marshal(&local)
 	if err != nil {

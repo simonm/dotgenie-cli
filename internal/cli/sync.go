@@ -212,6 +212,11 @@ func runSync(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("\nSync complete!")
 
+	// Check for dotgenie updates (non-blocking, respects check interval)
+	if cfg, err := config.Load(filepath.Join(paths.DotfilesDir, "config.yml")); err == nil {
+		maybeCheckForUpdate(paths, cfg)
+	}
+
 	// Apply dotfiles if requested
 	if syncApply {
 		fmt.Println()

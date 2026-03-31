@@ -86,6 +86,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("\n✓ Apply complete!")
+
+	// Check for dotgenie updates (non-blocking, respects check interval)
+	maybeCheckForUpdate(paths, cfg)
+
 	return nil
 }
 
