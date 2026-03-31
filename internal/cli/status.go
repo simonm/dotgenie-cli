@@ -2,7 +2,10 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/simonm/dotgenie/internal/config"
 	"github.com/simonm/dotgenie/internal/dotfiles"
@@ -131,7 +134,106 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Git repo status (silent fail)
+	printRepoStatus(paths.DotfilesDir)
+
+	// Version check (silent fail)
+	printVersionStatus()
+
 	return nil
+}
+
+// printRepoStatus shows the git sync state of the dotfiles repo.
+func printRepoStatus(dotfilesDir string) {
+	gitDir := filepath.Join(dotfilesDir, ".git")
+	if !fileExists(gitDir) {
+		return
+	}
+
+	fmt.Println("\n--- Repo ---")
+
+	// Check for uncommitted changes
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = dotfilesDir
+	statusOutput, err := statusCmd.Output()
+	if err != nil {
+		return
+	}
+
+	if len(statusOutput) > 0 {
+		lines := strings.Split(strings.TrimSpace(string(statusOutput)), "\n")
+		fmt.Printf("  %d uncommitted change(s)\n", len(lines))
+	} else {
+		fmt.Println("  Working tree clean")
+	}
+
+	// Fetch (silent, quick timeout)
+	fetchCmd := exec.Command("git", "fetch", "--quiet")
+	fetchCmd.Dir = dotfilesDir
+	if err := fetchCmd.Run(); err != nil {
+		return // no network, skip remote status
+	}
+
+	// Get current branch
+	branchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	branchCmd.Dir = dotfilesDir
+	branchOutput, err := branchCmd.Output()
+	if err != nil {
+		return
+	}
+	branch := strings.TrimSpace(string(branchOutput))
+
+	// Check ahead/behind
+	revCmd := exec.Command("git", "rev-list", "--left-right", "--count", fmt.Sprintf("origin/%s...HEAD", branch))
+	revCmd.Dir = dotfilesDir
+	revOutput, err := revCmd.Output()
+	if err != nil {
+		return
+	}
+
+	var behind, ahead int
+	_, _ = fmt.Sscanf(strings.TrimSpace(string(revOutput)), "%d\t%d", &behind, &ahead)
+
+	if ahead > 0 || behind > 0 {
+		parts := []string{}
+		if ahead > 0 {
+			parts = append(parts, fmt.Sprintf("%d ahead", ahead))
+		}
+		if behind > 0 {
+			parts = append(parts, fmt.Sprintf("%d behind", behind))
+		}
+		fmt.Printf("  Remote: %s\n", strings.Join(parts, ", "))
+	} else {
+		fmt.Println("  Remote: up to date")
+	}
+
+	if len(statusOutput) > 0 || ahead > 0 || behind > 0 {
+		fmt.Println("  Run 'dotgenie sync' to sync")
+	}
+}
+
+// printVersionStatus checks if a newer dotgenie version is available.
+func printVersionStatus() {
+	latest, err := getLatestRelease()
+	if err != nil {
+		return
+	}
+
+	latestVersion := strings.TrimPrefix(latest.TagName, "v")
+	currentVersion := strings.TrimPrefix(version, "v")
+
+	fmt.Println("\n--- Version ---")
+	if isNewerVersion(latestVersion, currentVersion) {
+		fmt.Printf("  Current: %s, Latest: %s\n", version, latest.TagName)
+		fmt.Println("  Run 'dotgenie upgrade' to update")
+	} else {
+		fmt.Printf("  %s (latest)\n", version)
+	}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func printStatusSummary(actions []dotfiles.FileAction) {
