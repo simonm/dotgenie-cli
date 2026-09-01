@@ -148,6 +148,9 @@ func installSystemPackages(pkgs []string, detectedOS string, dryRun, continueOnE
 	case "debian", "ubuntu":
 		cmdName = "sudo"
 		baseArgs = append([]string{"apt-get", "install", "-y"}, pkgs...)
+	case "fedora":
+		cmdName = "sudo"
+		baseArgs = append([]string{"dnf", "install", "-y"}, pkgs...)
 	case "macos":
 		cmdName = "brew"
 		baseArgs = []string{"install"}
@@ -191,6 +194,9 @@ func installSystemPackages(pkgs []string, detectedOS string, dryRun, continueOnE
 			case "debian", "ubuntu":
 				cmdName = "sudo"
 				singleArgs = []string{"apt-get", "install", "-y", pkg}
+			case "fedora":
+				cmdName = "sudo"
+				singleArgs = []string{"dnf", "install", "-y", pkg}
 			case "macos":
 				singleArgs = []string{"install", pkg}
 			}
@@ -393,7 +399,7 @@ func applyPackagesNew(paths config.Paths, cfg *config.Config, dryRun, continueOn
 			if err := installSystemPackages(systemPkgs, cfg.OS, dryRun, continueOnError, verbose); err != nil {
 				return err
 			}
-		case "debian", "ubuntu", "macos":
+		case "debian", "ubuntu", "fedora", "macos":
 			if err := installSystemPackages(systemPkgs, cfg.OS, dryRun, continueOnError, verbose); err != nil {
 				return err
 			}

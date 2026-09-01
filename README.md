@@ -8,7 +8,7 @@ A fast, simple dotfiles manager written in Go.
 - **Layered configuration** - `common/` -> `workstation/` -> `hosts/<hostname>/`
 - **Multi-target support** - Manage `home/`, `etc/`, `var/`, `usr/` files
 - **Direct symlinks** - Edit `~/.config/foo` and it edits your managed file
-- **Package management** - System packages via yay/apt/brew, dev tools via mise
+- **Package management** - System packages via yay/apt/dnf/brew, dev tools via mise
 - **Cross-platform** - Linux (Arch, Ubuntu, Debian) and macOS
 
 ## Installation
@@ -21,7 +21,7 @@ Or download from [releases](https://github.com/simonm/dotgenie-cli/releases).
 
 ### Dependencies
 
-dotgenie requires `git` for repository operations. For package installation, it calls your system package manager directly (yay on Arch, apt-get on Debian/Ubuntu, brew on macOS) and uses [mise](https://mise.jdx.dev) for developer tools. Missing tools are detected and offered for automatic installation.
+dotgenie requires `git` for repository operations. For package installation, it calls your system package manager directly (yay on Arch, apt-get on Debian/Ubuntu, dnf on Fedora/Asahi, brew on macOS) and uses [mise](https://mise.jdx.dev) for developer tools. Missing tools are detected and offered for automatic installation.
 
 ## Quick Start
 
@@ -239,7 +239,7 @@ mise_packages:
   - lazygit@latest
 ```
 
-System packages are installed via yay (Arch), apt-get (Debian/Ubuntu), or brew (macOS). yay is auto-installed on Arch if missing. [mise](https://mise.jdx.dev) is auto-installed if missing.
+System packages are installed via yay (Arch), apt-get (Debian/Ubuntu), dnf (Fedora/Asahi), or brew (macOS). yay is auto-installed on Arch if missing. [mise](https://mise.jdx.dev) is auto-installed if missing.
 
 ## Configuration
 

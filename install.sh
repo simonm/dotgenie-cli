@@ -44,6 +44,9 @@ check_post_install_deps() {
                         ubuntu|debian|pve)
                             echo "  sudo apt-get install ${missing}"
                             ;;
+                        fedora|fedora-asahi-remix)
+                            echo "  sudo dnf install ${missing}"
+                            ;;
                         *)
                             # Check ID_LIKE for derivatives (e.g. Proxmox)
                             case "$ID_LIKE" in
@@ -52,6 +55,9 @@ check_post_install_deps() {
                                     ;;
                                 *arch*)
                                     echo "  sudo pacman -S ${missing}"
+                                    ;;
+                                *fedora*)
+                                    echo "  sudo dnf install ${missing}"
                                     ;;
                                 *)
                                     echo "  Install ${missing} using your package manager"
