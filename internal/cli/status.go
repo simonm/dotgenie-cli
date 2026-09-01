@@ -161,8 +161,17 @@ func printRepoStatus(dotfilesDir string) {
 	}
 
 	if len(statusOutput) > 0 {
-		lines := strings.Split(strings.TrimSpace(string(statusOutput)), "\n")
-		fmt.Printf("  %d uncommitted change(s)\n", len(lines))
+		// Only trim the trailing newline -- preserve leading spaces in status codes.
+		lines := strings.Split(strings.TrimRight(string(statusOutput), "\n"), "\n")
+		fmt.Printf("  %d uncommitted change(s):\n", len(lines))
+		for _, line := range lines {
+			if len(line) < 3 {
+				continue
+			}
+			code := line[:2]
+			path := line[3:]
+			fmt.Printf("    %s  %s\n", describeGitStatus(code), path)
+		}
 	} else {
 		fmt.Println("  Working tree clean")
 	}
@@ -234,6 +243,40 @@ func printVersionStatus() {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// describeGitStatus turns a two-char git porcelain status code into a short
+// human label. First char is index state, second is worktree state.
+func describeGitStatus(code string) string {
+	if code == "??" {
+		return "new    "
+	}
+	if code == "!!" {
+		return "ignored"
+	}
+	// Prefer describing the worktree state; fall back to index state.
+	c := code[1]
+	if c == ' ' {
+		c = code[0]
+	}
+	switch c {
+	case 'M':
+		return "modified"
+	case 'A':
+		return "added   "
+	case 'D':
+		return "deleted "
+	case 'R':
+		return "renamed "
+	case 'C':
+		return "copied  "
+	case 'U':
+		return "unmerged"
+	case 'T':
+		return "typechg "
+	default:
+		return code
+	}
 }
 
 func printStatusSummary(actions []dotfiles.FileAction) {
