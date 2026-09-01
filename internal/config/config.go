@@ -194,6 +194,8 @@ func DetectOS() string {
 		return "ubuntu"
 	case "debian":
 		return "debian"
+	case "fedora", "fedora-asahi-remix":
+		return "fedora"
 	}
 
 	// Fall back to ID_LIKE for derivatives (e.g. Proxmox has ID=pve, ID_LIKE=debian)
@@ -205,6 +207,8 @@ func DetectOS() string {
 			return "ubuntu"
 		case "debian":
 			return "debian"
+		case "fedora":
+			return "fedora"
 		}
 	}
 

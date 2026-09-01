@@ -28,8 +28,13 @@ The target (home/, etc/, var/) is auto-detected based on the file path.
 
 You can specify which layer to adopt into:
   - common:      Shared across all systems
-  - workstation: Desktop/laptop systems only
+  - workstation: Desktop/laptop systems only (or any custom system type)
   - host:        This specific host only
+
+If the file is already managed in one layer and you adopt it into a different
+layer, dotgenie copies (never moves) the content. The original stays put so
+other systems that used it are unaffected. The local symlink is redirected
+only when the new layer wins the specificity race on this machine.
 
 Examples:
   dotgenie adopt ~/.config/nvim                           # → common/home/
@@ -116,7 +121,7 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 		return err
 	}
 
-	// Check if source is a symlink (from stow, chezmoi, etc.)
+	// Check if source is a symlink (from stow, chezmoi, etc., or from us)
 	var existingLinkTarget string
 	if linkTarget, err := os.Readlink(absSource); err == nil {
 		// It's a symlink - resolve to absolute path
@@ -140,6 +145,24 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 
 	// Target path in dotfiles repo: dotfiles/<layer>/<target>/<relPath>
 	destPath := filepath.Join(paths.DotfilesDir, "dotfiles", layer, targetName, relPath)
+
+	// Check if this is a cross-layer adopt (source is our own symlink into a different layer)
+	if currentLayer, ok := layerFromRepoPath(existingLinkTarget, paths.DotfilesDir); ok {
+		if currentLayer == layer {
+			return fmt.Errorf("already managed in layer: %s", layer)
+		}
+		return promoteBetweenLayers(promoteArgs{
+			absSource:    absSource,
+			currentLink:  existingLinkTarget,
+			currentLayer: currentLayer,
+			newLayer:     layer,
+			newDestPath:  destPath,
+			targetName:   targetName,
+			cfg:          cfg,
+			copyOnly:     copyOnly,
+			autoYes:      autoYes,
+		})
+	}
 
 	// Check if already adopted
 	if _, err := os.Stat(destPath); err == nil {
@@ -229,6 +252,157 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 
 	fmt.Printf("Adopted and linked: %s → %s\n", absSource, destPath)
 	return nil
+}
+
+// layerFromRepoPath returns the layer name if the given absolute path is inside
+// the dotfiles repo's dotfiles/ tree, along with true. Otherwise returns "", false.
+// Handles paths like:
+//   <repo>/dotfiles/common/home/.config/foo    -> "common"
+//   <repo>/dotfiles/workstation/home/.config/x -> "workstation"
+//   <repo>/dotfiles/hosts/xenon/home/.config/y -> "hosts/xenon"
+func layerFromRepoPath(path, dotfilesDir string) (string, bool) {
+	if path == "" {
+		return "", false
+	}
+	prefix := filepath.Join(dotfilesDir, "dotfiles") + string(filepath.Separator)
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	rel := strings.TrimPrefix(path, prefix)
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) == 0 {
+		return "", false
+	}
+	if parts[0] == "hosts" && len(parts) >= 2 {
+		return filepath.Join("hosts", parts[1]), true
+	}
+	return parts[0], true
+}
+
+// layerSpecificity returns how specific a layer is on this machine. Higher wins.
+// Returns -1 if the layer does not apply on this machine.
+//
+//	common       -> 0 (always applies)
+//	<systemtype> -> 1 (applies if matches cfg.SystemType)
+//	hosts/<host> -> 2 (applies if matches cfg.Hostname)
+func layerSpecificity(layer string, cfg *config.Config) int {
+	if layer == "common" {
+		return 0
+	}
+	if strings.HasPrefix(layer, "hosts/") {
+		if layer == filepath.Join("hosts", cfg.Hostname) {
+			return 2
+		}
+		return -1
+	}
+	if layer == cfg.SystemType {
+		return 1
+	}
+	return -1
+}
+
+type promoteArgs struct {
+	absSource    string
+	currentLink  string
+	currentLayer string
+	newLayer     string
+	newDestPath  string
+	targetName   string
+	cfg          *config.Config
+	copyOnly     bool
+	autoYes      bool
+}
+
+// promoteBetweenLayers copies a managed file from one layer to another. The
+// original stays in place. The symlink is updated only if the new layer has
+// higher specificity on this machine (i.e. it wins).
+func promoteBetweenLayers(a promoteArgs) error {
+	// Refuse if the new destination already exists
+	if _, err := os.Stat(a.newDestPath); err == nil {
+		return fmt.Errorf("already exists in dotfiles: %s\n  Use 'dotgenie forget --scope %s' first if you want to re-adopt", a.newDestPath, scopeFromLayer(a.newLayer))
+	}
+
+	currentSpec := layerSpecificity(a.currentLayer, a.cfg)
+	newSpec := layerSpecificity(a.newLayer, a.cfg)
+	updateSymlink := newSpec > currentSpec
+
+	info, err := os.Stat(a.currentLink)
+	if err != nil {
+		return fmt.Errorf("reading source: %w", err)
+	}
+
+	if info.IsDir() {
+		fmt.Printf("\nAdopting directory: %s\n", a.absSource)
+	} else {
+		fmt.Printf("\nAdopting file: %s\n", a.absSource)
+	}
+	fmt.Printf("  Currently managed in: %s\n", a.currentLayer)
+	fmt.Printf("  Copying to: %s\n", a.newLayer)
+	fmt.Printf("  Source: %s\n", a.currentLink)
+	fmt.Printf("  Destination: %s\n", a.newDestPath)
+	fmt.Printf("  Original stays -- still applies where %s wins.\n", a.currentLayer)
+	if updateSymlink {
+		fmt.Printf("  Symlink will update to point at the %s version (wins on this machine).\n", a.newLayer)
+	} else {
+		fmt.Printf("  Symlink stays pointing at %s (still wins on this machine).\n", a.currentLayer)
+		if newSpec >= 0 && newSpec < currentSpec {
+			fmt.Printf("  To use the %s version here, run 'dotgenie forget --scope %s' on this path.\n", a.newLayer, scopeFromLayer(a.currentLayer))
+		}
+	}
+
+	if !a.autoYes {
+		fmt.Print("Proceed? [y/N] ")
+		reader := bufio.NewReader(os.Stdin)
+		response, _ := reader.ReadString('\n')
+		response = strings.TrimSpace(strings.ToLower(response))
+		if response != "y" && response != "yes" {
+			fmt.Println("Skipped")
+			return nil
+		}
+	}
+
+	// Create parent directory and copy content
+	if err := os.MkdirAll(filepath.Dir(a.newDestPath), 0755); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+	if info.IsDir() {
+		if err := copyDir(a.currentLink, a.newDestPath); err != nil {
+			return fmt.Errorf("copying directory: %w", err)
+		}
+	} else {
+		if err := copyFile(a.currentLink, a.newDestPath); err != nil {
+			return fmt.Errorf("copying file: %w", err)
+		}
+	}
+
+	// Update the symlink if the new layer wins
+	if updateSymlink && !a.copyOnly {
+		if dotfiles.TargetNeedsSudo(a.targetName) {
+			if err := removeAndLinkWithSudo(a.absSource, a.newDestPath); err != nil {
+				return err
+			}
+		} else {
+			if err := os.RemoveAll(a.absSource); err != nil {
+				return fmt.Errorf("removing old symlink: %w", err)
+			}
+			if err := os.Symlink(a.newDestPath, a.absSource); err != nil {
+				return fmt.Errorf("creating new symlink: %w", err)
+			}
+		}
+		fmt.Printf("Copied and re-linked: %s -> %s\n", a.absSource, a.newDestPath)
+	} else {
+		fmt.Printf("Copied to %s\n", a.newDestPath)
+	}
+	return nil
+}
+
+// scopeFromLayer converts an internal layer name back to a --scope flag value.
+// "hosts/xenon" -> "host"; "workstation" -> "workstation"; "common" -> "common".
+func scopeFromLayer(layer string) string {
+	if strings.HasPrefix(layer, "hosts/") {
+		return "host"
+	}
+	return layer
 }
 
 func removeAndLinkWithSudo(originalPath, destPath string) error {

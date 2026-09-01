@@ -24,6 +24,8 @@ func installCommands(detectedOS, pkg string) []string {
 		return []string{"sudo", "pacman", "-S", "--noconfirm", pkg}
 	case "ubuntu", "debian":
 		return []string{"sudo", "apt-get", "install", "-y", pkg}
+	case "fedora":
+		return []string{"sudo", "dnf", "install", "-y", pkg}
 	default:
 		return nil
 	}
