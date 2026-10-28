@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/simonm/dotgenie/internal/config"
 )
 
 // Target represents a destination root (home, etc, var, etc.)
@@ -65,31 +67,54 @@ func NewManager(dotfilesDir, homeDir, systemType, hostname string) *Manager {
 	}
 }
 
+// Layer is one layer of the repo as it applies on this machine.
+type Layer struct {
+	Name     string // "common", the system type, or "hosts/<hostname>"
+	Dir      string // <repo>/dotfiles/<Name>
+	Files    int    // files in the layer, across all targets; 0 if Dir is missing
+	Packages string // the layer's package file ("common.yml", "<type>.yml") if it exists
+}
+
+// Layers returns the layers that apply on this machine, in the order they're
+// applied (later layers override earlier ones): common, the system type if
+// set, then the host. A layer whose directory is missing is still listed,
+// with no files, so it can be shown rather than silently skipped.
+func (m *Manager) Layers() []Layer {
+	names := []string{"common"}
+	if m.SystemType != "" {
+		names = append(names, m.SystemType)
+	}
+	names = append(names, filepath.Join("hosts", m.Hostname))
+
+	var layers []Layer
+	for _, name := range names {
+		l := Layer{Name: name, Dir: filepath.Join(m.DotfilesDir, "dotfiles", name)}
+		_ = filepath.WalkDir(l.Dir, func(_ string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && d.Name() != ".gitkeep" {
+				l.Files++
+			}
+			return nil
+		})
+		if !strings.HasPrefix(name, "hosts/") {
+			pkg := name + ".yml"
+			if _, err := os.Stat(filepath.Join(m.DotfilesDir, "packages", pkg)); err == nil {
+				l.Packages = pkg
+			}
+		}
+		layers = append(layers, l)
+	}
+	return layers
+}
+
 // CollectFiles gathers all dotfiles from the layers for specified targets
 // Returns map of "target:relPath" -> sourcePath
 func (m *Manager) CollectFiles(targets []Target) (map[string]string, error) {
 	files := make(map[string]string)
-
-	// Layer 1: common (always)
-	commonDir := filepath.Join(m.DotfilesDir, "dotfiles", "common")
-	if err := m.walkLayerTargets(commonDir, targets, files); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("walking common: %w", err)
-	}
-
-	// Layer 2: system type (if directory exists)
-	if m.SystemType != "" {
-		typeDir := filepath.Join(m.DotfilesDir, "dotfiles", m.SystemType)
-		if err := m.walkLayerTargets(typeDir, targets, files); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("walking %s: %w", m.SystemType, err)
+	for _, l := range m.Layers() {
+		if err := m.walkLayerTargets(l.Dir, targets, files); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("walking %s: %w", l.Name, err)
 		}
 	}
-
-	// Layer 3: host-specific (always, if exists)
-	hostDir := filepath.Join(m.DotfilesDir, "dotfiles", "hosts", m.Hostname)
-	if err := m.walkLayerTargets(hostDir, targets, files); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("walking host %s: %w", m.Hostname, err)
-	}
-
 	return files, nil
 }
 
@@ -140,12 +165,35 @@ func (m *Manager) Apply(targets []Target, dryRun bool) ([]FileAction, error) {
 		targetMap[t.Name] = t
 	}
 
-	// Process files in parallel
+	// Directories linked whole into the repo come first, one at a time: each
+	// becomes a real directory, and its files are linked one by one below.
+	// Left in place, every file under it is the repo file itself, and
+	// backing one up renames it inside the repo.
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
 		actions []FileAction
 	)
+	dirLinked := map[string]bool{}
+	for key := range files {
+		targetName, relPath, _ := strings.Cut(key, ":")
+		t := targetMap[targetName]
+		dir := m.repoLinkedParent(t.RootPath, filepath.Join(t.RootPath, relPath))
+		if dir == "" || dirLinked[dir] {
+			continue
+		}
+		dirLinked[dir] = true
+		a := FileAction{Target: targetName, TargetPath: dir, Action: "unlink_dir"}
+		a.RelPath, _ = filepath.Rel(t.RootPath, dir)
+		if !dryRun {
+			if err := os.Remove(dir); err != nil { // the symlink only
+				a.Action, a.Error = "error", fmt.Errorf("replacing directory link %s: %w", dir, err)
+			} else if err := os.MkdirAll(dir, 0o755); err != nil {
+				a.Action, a.Error = "error", fmt.Errorf("creating %s: %w", dir, err)
+			}
+		}
+		actions = append(actions, a)
+	}
 
 	sem := make(chan struct{}, 20)
 
@@ -162,7 +210,13 @@ func (m *Manager) Apply(targets []Target, dryRun bool) ([]FileAction, error) {
 			relPath := parts[1]
 
 			target := targetMap[targetName]
-			action := m.processFile(target, relPath, sourcePath, dryRun)
+			var action FileAction
+			if dryRun && m.repoLinkedParent(target.RootPath, filepath.Join(target.RootPath, relPath)) != "" {
+				// A real run replaces the directory link first, then links this.
+				action = FileAction{RelPath: relPath, SourcePath: sourcePath, TargetPath: filepath.Join(target.RootPath, relPath), Target: targetName, Action: "link"}
+			} else {
+				action = m.processFile(target, relPath, sourcePath, dryRun)
+			}
 
 			mu.Lock()
 			actions = append(actions, action)
@@ -187,6 +241,14 @@ func (m *Manager) processFile(target Target, relPath, sourcePath string, dryRun 
 		SourcePath: sourcePath,
 		TargetPath: targetPath,
 		Target:     target.Name,
+	}
+
+	// Never rename or replace anything inside the repo. A target reached
+	// through a directory link into the repo is a repo file.
+	if m.insideRepo(filepath.Dir(targetPath)) {
+		action.Action = "error"
+		action.Error = fmt.Errorf("%s is inside the dotfiles repo (through a directory link); refusing to touch it", targetPath)
+		return action
 	}
 
 	// Check current state of target
@@ -246,6 +308,51 @@ func (m *Manager) processFile(target Target, relPath, sourcePath string, dryRun 
 		}
 	}
 	return action
+}
+
+// repoPrefix is the repo's dotfiles/ tree with symlinks resolved, ending in
+// a separator.
+func (m *Manager) repoPrefix() string {
+	d := filepath.Join(m.DotfilesDir, "dotfiles")
+	if r, err := filepath.EvalSymlinks(d); err == nil {
+		d = r
+	}
+	return d + string(filepath.Separator)
+}
+
+// insideRepo reports whether dir, with symlinks resolved, is in the repo's
+// dotfiles/ tree.
+func (m *Manager) insideRepo(dir string) bool {
+	r, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(r+string(filepath.Separator), m.repoPrefix())
+}
+
+// repoLinkedParent returns the topmost directory between root and path
+// (both exclusive) that is a symlink into the repo's dotfiles/ tree, as
+// adopt used to make when adopting a directory. "" if there's none.
+func (m *Manager) repoLinkedParent(root, path string) string {
+	rel, err := filepath.Rel(root, filepath.Dir(path))
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	dir := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		dir = filepath.Join(dir, part)
+		fi, err := os.Lstat(dir)
+		if err != nil {
+			return ""
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			if m.insideRepo(dir) {
+				return dir
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func (m *Manager) createSymlink(source, target string) error {
@@ -397,6 +504,13 @@ func (m *Manager) Status(targets []Target) ([]FileAction, error) {
 			Target:     targetName,
 		}
 
+		if dir := m.repoLinkedParent(target.RootPath, targetPath); dir != "" {
+			action.Action = "wrong_link"
+			action.Error = fmt.Errorf("reached through directory link %s; sync replaces it with per-file links", dir)
+			actions = append(actions, action)
+			continue
+		}
+
 		targetInfo, err := os.Lstat(targetPath)
 		if os.IsNotExist(err) {
 			action.Action = "missing"
@@ -449,6 +563,9 @@ func PrintActions(actions []FileAction, verbose bool) {
 			if verbose {
 				fmt.Printf("  ✓ %s%s (backed up existing)\n", prefix, a.RelPath)
 			}
+		case "unlink_dir":
+			fmt.Printf("  - %s%s: directory link into the repo replaced by a real directory (files linked one by one)\n", prefix, a.RelPath)
+			continue
 		case "cleaned":
 			cleaned++
 			if verbose {
@@ -491,17 +608,25 @@ func PrintActions(actions []FileAction, verbose bool) {
 	}
 }
 
-// GetLayerForPath determines which layer a path should go to
-func GetLayerForPath(scope string, hostname string) string {
-	switch strings.ToLower(scope) {
-	case "common":
-		return "common"
-	case "workstation":
-		return "workstation"
-	case "host":
-		return filepath.Join("hosts", hostname)
+// Scopes returns the values --scope takes: common, each system type, and
+// host.
+func Scopes() []string {
+	return append(append([]string{"common"}, config.SystemTypes...), "host")
+}
+
+// GetLayerForPath returns the layer directory (under dotfiles/) for a
+// --scope value. An unknown scope is an error: falling back to common would
+// adopt a file onto every machine, or forget it from all of them.
+func GetLayerForPath(scope string, hostname string) (string, error) {
+	switch s := strings.ToLower(scope); {
+	case s == "common":
+		return "common", nil
+	case s == "host":
+		return filepath.Join("hosts", hostname), nil
+	case config.IsSystemType(s):
+		return s, nil
 	default:
-		return "common"
+		return "", fmt.Errorf("unknown scope %q: use one of %s", scope, strings.Join(Scopes(), ", "))
 	}
 }
 

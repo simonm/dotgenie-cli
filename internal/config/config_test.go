@@ -161,3 +161,22 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestIsSystemType(t *testing.T) {
+	for _, typ := range []string{"workstation", "server"} {
+		if !IsSystemType(typ) {
+			t.Errorf("%s should be a system type", typ)
+		}
+	}
+	for _, typ := range []string{"container", "minimal", "", "Server"} {
+		if IsSystemType(typ) {
+			t.Errorf("%q shouldn't be a system type", typ)
+		}
+	}
+}
+
+func TestNewMachineIsMarkedForPackages(t *testing.T) {
+	if c := NewFromDetection(); c.PackagesHash != PackagesNeverInstalled {
+		t.Fatalf("PackagesHash = %q, want %q", c.PackagesHash, PackagesNeverInstalled)
+	}
+}

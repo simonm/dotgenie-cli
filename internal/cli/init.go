@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/simonm/dotgenie/internal/config"
@@ -30,7 +31,7 @@ Examples:
 }
 
 func init() {
-	initCmd.Flags().StringVarP(&initSystemType, "type", "t", "", "System type (workstation, server, container)")
+	initCmd.Flags().StringVarP(&initSystemType, "type", "t", "", "System type ("+strings.Join(config.SystemTypes, ", ")+")")
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -79,28 +80,32 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// Allow override of system type
 	if initSystemType != "" {
+		if !config.IsSystemType(initSystemType) {
+			return fmt.Errorf("unknown system type %q: use one of %s", initSystemType, strings.Join(config.SystemTypes, ", "))
+		}
 		cfg.SystemType = initSystemType
 	} else {
 		fmt.Printf("\nSystem types:\n")
 		fmt.Printf("  1) workstation - Desktop/laptop with GUI\n")
 		fmt.Printf("  2) server      - Headless server\n")
-		fmt.Printf("  3) container   - Docker/LXC container\n")
-		fmt.Printf("\nConfirm type [%s]: ", cfg.SystemType)
-
 		reader := bufio.NewReader(os.Stdin)
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(input)
-
-		if input != "" {
-			switch input {
-			case "1", "workstation":
-				cfg.SystemType = "workstation"
-			case "2", "server":
-				cfg.SystemType = "server"
-			case "3", "container":
-				cfg.SystemType = "container"
-			default:
+		for {
+			fmt.Printf("\nConfirm type [%s]: ", cfg.SystemType)
+			input, err := reader.ReadString('\n')
+			input = strings.TrimSpace(input)
+			if input == "" {
+				break
+			}
+			if n, convErr := strconv.Atoi(input); convErr == nil && n >= 1 && n <= len(config.SystemTypes) {
+				input = config.SystemTypes[n-1]
+			}
+			if config.IsSystemType(input) {
 				cfg.SystemType = input
+				break
+			}
+			fmt.Printf("Unknown system type %q: use one of %s\n", input, strings.Join(config.SystemTypes, ", "))
+			if err != nil {
+				return fmt.Errorf("no valid system type given")
 			}
 		}
 	}
@@ -126,8 +131,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n✓ Initialization complete!\n\n")
 	fmt.Printf("Next steps:\n")
-	fmt.Printf("  dotgenie apply           # Link dotfiles and install packages\n")
-	fmt.Printf("  dotgenie apply --dotfiles-only  # Link dotfiles only\n")
+	fmt.Printf("  dotgenie sync            # Pull, link dotfiles, install packages\n")
+	fmt.Printf("  dotgenie sync --dry-run  # Preview first\n")
 	fmt.Printf("  dotgenie status          # Check current state\n")
 
 	return nil

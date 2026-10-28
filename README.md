@@ -5,7 +5,7 @@ A fast, simple dotfiles manager written in Go.
 ## Features
 
 - **Fast parallel symlinking** - Links hundreds of dotfiles in milliseconds
-- **Layered configuration** - `common/` -> `workstation/` -> `hosts/<hostname>/`
+- **Layered configuration** - `common/` -> `workstation/` or `server/` -> `hosts/<hostname>/`
 - **Multi-target support** - Manage `home/`, `etc/`, `var/`, `usr/` files
 - **Direct symlinks** - Edit `~/.config/foo` and it edits your managed file
 - **Package management** - System packages via yay/apt/dnf/brew, dev tools via mise
@@ -38,10 +38,10 @@ dotgenie adopt ~/.bashrc
 # Edit packages to install
 $EDITOR ~/.dotfiles/packages/common.yml
 
-# Apply (links dotfiles and installs packages)
-dotgenie apply --packages
+# Link dotfiles and install packages
+dotgenie sync
 
-# Push to GitHub
+# Push to GitHub (sync commits and pushes from then on)
 cd ~/.dotfiles
 git remote add origin https://github.com/YOU/dotfiles
 git add -A && git commit -m "Initial dotfiles"
@@ -54,8 +54,8 @@ git push -u origin main
 # Clone and configure
 dotgenie init https://github.com/YOU/dotfiles
 
-# Apply dotfiles and install packages
-dotgenie apply --packages
+# Link dotfiles and install packages
+dotgenie sync
 ```
 
 ## Commands
@@ -64,11 +64,10 @@ dotgenie apply --packages
 |---------|-------------|
 | `new` | Create a new dotfiles repository with starter structure |
 | `init [repo]` | Clone existing dotfiles repo and configure |
-| `apply` | Link dotfiles and optionally install packages |
 | `status` | Show status of managed dotfiles |
 | `adopt <path>` | Import existing configs into management |
 | `forget <path>` | Remove configs from management |
-| `sync` | Sync with remote git repository |
+| `sync` (or `apply`) | Commit, pull, push, link dotfiles, install changed packages |
 | `upgrade` | Upgrade dotgenie to the latest release |
 
 ### new
@@ -86,14 +85,28 @@ This creates:
 - mise tool list for dev tools
 - README and .gitignore
 
-### apply
+### sync
+
+The one command for keeping a machine up to date, both ways (`apply` is the same command):
+
+1. Commit local changes. Your dotfiles are symlinks into the repo, so editing `~/.config/foo` edits the repo; the commit message names the machine.
+2. Fetch, and rebase onto the remote if it has new commits.
+3. Push local commits.
+4. Link dotfiles from each layer. System files (`/etc`, `/var`, `/usr`) are offered with sudo.
+5. Install packages the first time on a machine, and again whenever the package files change. The last install is recorded as `packages_hash` in `config.local.yml`.
 
 ```bash
-dotgenie apply                    # Link home dotfiles only
-dotgenie apply --packages         # Also install system packages and mise tools
-dotgenie apply --dry-run          # Preview changes without making them
-dotgenie apply --verbose          # Show all files being processed
+dotgenie sync                     # Everything above
+dotgenie sync --dry-run           # Show what would happen; change nothing
+dotgenie sync --no-push           # Commit and pull, but don't push
+dotgenie sync --offline           # No git: link and install from the local repo
+dotgenie sync --packages          # Install packages even if unchanged
+dotgenie sync --verbose           # Show all files being processed
 ```
+
+If the rebase hits a conflict (the same file changed here and on another machine), sync undoes the rebase, keeps your commit, names the files, and stops before linking. It never resolves a conflict by guessing. If the push fails (say, a server with no push access), the commit is kept, sync says so and carries on; the next sync from a machine with access pushes it. Offline, it links from the local repo. It never creates a branch on the remote.
+
+`auto_pull_before_apply: false` in `config.yml` makes sync behave as `--offline`.
 
 ### adopt
 
@@ -119,22 +132,13 @@ dotgenie forget --scope host /etc/modprobe.d/iwlwifi.conf  # Remove system file
 dotgenie forget --keep-repo ~/.config/nvim             # Unlink but keep in repo
 ```
 
-When you forget a file from one layer, any version in a lower layer (e.g., common) will take effect on the next `apply`.
+When you forget a file from one layer, the version in the most specific remaining layer (host, then system type, then common) will take effect on the next `apply`.
 
 ### status
 
 ```bash
 dotgenie status                   # Check home files
 dotgenie status --system          # Also check system files (etc/, var/)
-```
-
-### sync
-
-```bash
-dotgenie sync                     # Commit, fetch, pull, push
-dotgenie sync -y                  # Auto-accept all prompts
-dotgenie sync -ya                 # Sync and apply dotfiles
-dotgenie sync --no-push           # Skip pushing
 ```
 
 ### upgrade
@@ -186,10 +190,18 @@ The upgrade replaces the running binary in-place. If the install directory is no
 Files are applied in order, with later layers overriding earlier ones:
 
 1. `common/` - Applied to all systems
-2. `workstation/` - Applied only if system type is "workstation"
+2. `workstation/` or `server/` - Applied only on systems of that type (`system_type` in `config.local.yml`)
 3. `hosts/<hostname>/` - Applied only on the matching host
 
 This lets you have a base config in `common/` and override specific files per-host.
+
+The system types are `workstation` and `server`. `status` and `sync` print the layers that apply on this machine and what each holds, for example:
+
+```
+Layers:      common (42 files, common.yml) -> server (no files, server.yml) -> hosts/boron (3 files)
+```
+
+They warn if `system_type` is unset, isn't a known type, or names a layer with no files and no package file. `--scope` for `adopt` and `forget` takes `common`, a system type, or `host`; anything else is an error.
 
 ### Targets
 
@@ -202,7 +214,7 @@ Each layer can contain multiple targets:
 | `var/` | `/var` | Yes |
 | `usr/` | `/usr` | Yes |
 
-Use `--system` flag with `apply` and `status` to include system targets.
+`sync` always checks system targets and asks before running sudo; `status --system` includes them in the report.
 
 ## Package Management
 

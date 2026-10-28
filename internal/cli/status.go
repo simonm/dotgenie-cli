@@ -46,14 +46,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Dotfiles: %s\n", paths.DotfilesDir)
 	cfg.Print()
 
-	fmt.Println("\n─── Dotfiles Status ───")
-
 	mgr := dotfiles.NewManager(
 		paths.DotfilesDir,
 		paths.Home,
 		cfg.SystemType,
 		cfg.Hostname,
 	)
+	printLayers(mgr)
+
+	fmt.Println("\n─── Dotfiles Status ───")
 
 	// Check home files
 	homeTargets := []dotfiles.Target{
@@ -128,10 +129,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	if missing+wrong+notLink > 0 {
-		fmt.Println("\nRun 'dotgenie apply' to fix issues")
-		if statusSystem {
-			fmt.Println("Use 'dotgenie apply --system' to also fix system files")
-		}
+		fmt.Println("\nRun 'dotgenie sync' to fix issues (system files are offered with sudo)")
 	}
 
 	// Git repo status (silent fail)
@@ -290,7 +288,11 @@ func printStatusSummary(actions []dotfiles.FileAction) {
 			fmt.Printf("    ○ %s (not linked)\n", a.RelPath)
 		case "wrong_link":
 			wrong++
-			fmt.Printf("    ! %s (wrong symlink)\n", a.RelPath)
+			if a.Error != nil {
+				fmt.Printf("    ! %s (%v)\n", a.RelPath, a.Error)
+			} else {
+				fmt.Printf("    ! %s (wrong symlink)\n", a.RelPath)
+			}
 		case "not_symlink":
 			notLink++
 			fmt.Printf("    ! %s (exists but not a symlink)\n", a.RelPath)
