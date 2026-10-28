@@ -165,12 +165,35 @@ func (m *Manager) Apply(targets []Target, dryRun bool) ([]FileAction, error) {
 		targetMap[t.Name] = t
 	}
 
-	// Process files in parallel
+	// Directories linked whole into the repo come first, one at a time: each
+	// becomes a real directory, and its files are linked one by one below.
+	// Left in place, every file under it is the repo file itself, and
+	// backing one up renames it inside the repo.
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
 		actions []FileAction
 	)
+	dirLinked := map[string]bool{}
+	for key := range files {
+		targetName, relPath, _ := strings.Cut(key, ":")
+		t := targetMap[targetName]
+		dir := m.repoLinkedParent(t.RootPath, filepath.Join(t.RootPath, relPath))
+		if dir == "" || dirLinked[dir] {
+			continue
+		}
+		dirLinked[dir] = true
+		a := FileAction{Target: targetName, TargetPath: dir, Action: "unlink_dir"}
+		a.RelPath, _ = filepath.Rel(t.RootPath, dir)
+		if !dryRun {
+			if err := os.Remove(dir); err != nil { // the symlink only
+				a.Action, a.Error = "error", fmt.Errorf("replacing directory link %s: %w", dir, err)
+			} else if err := os.MkdirAll(dir, 0o755); err != nil {
+				a.Action, a.Error = "error", fmt.Errorf("creating %s: %w", dir, err)
+			}
+		}
+		actions = append(actions, a)
+	}
 
 	sem := make(chan struct{}, 20)
 
@@ -187,7 +210,13 @@ func (m *Manager) Apply(targets []Target, dryRun bool) ([]FileAction, error) {
 			relPath := parts[1]
 
 			target := targetMap[targetName]
-			action := m.processFile(target, relPath, sourcePath, dryRun)
+			var action FileAction
+			if dryRun && m.repoLinkedParent(target.RootPath, filepath.Join(target.RootPath, relPath)) != "" {
+				// A real run replaces the directory link first, then links this.
+				action = FileAction{RelPath: relPath, SourcePath: sourcePath, TargetPath: filepath.Join(target.RootPath, relPath), Target: targetName, Action: "link"}
+			} else {
+				action = m.processFile(target, relPath, sourcePath, dryRun)
+			}
 
 			mu.Lock()
 			actions = append(actions, action)
@@ -212,6 +241,14 @@ func (m *Manager) processFile(target Target, relPath, sourcePath string, dryRun 
 		SourcePath: sourcePath,
 		TargetPath: targetPath,
 		Target:     target.Name,
+	}
+
+	// Never rename or replace anything inside the repo. A target reached
+	// through a directory link into the repo is a repo file.
+	if m.insideRepo(filepath.Dir(targetPath)) {
+		action.Action = "error"
+		action.Error = fmt.Errorf("%s is inside the dotfiles repo (through a directory link); refusing to touch it", targetPath)
+		return action
 	}
 
 	// Check current state of target
@@ -271,6 +308,51 @@ func (m *Manager) processFile(target Target, relPath, sourcePath string, dryRun 
 		}
 	}
 	return action
+}
+
+// repoPrefix is the repo's dotfiles/ tree with symlinks resolved, ending in
+// a separator.
+func (m *Manager) repoPrefix() string {
+	d := filepath.Join(m.DotfilesDir, "dotfiles")
+	if r, err := filepath.EvalSymlinks(d); err == nil {
+		d = r
+	}
+	return d + string(filepath.Separator)
+}
+
+// insideRepo reports whether dir, with symlinks resolved, is in the repo's
+// dotfiles/ tree.
+func (m *Manager) insideRepo(dir string) bool {
+	r, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(r+string(filepath.Separator), m.repoPrefix())
+}
+
+// repoLinkedParent returns the topmost directory between root and path
+// (both exclusive) that is a symlink into the repo's dotfiles/ tree, as
+// adopt used to make when adopting a directory. "" if there's none.
+func (m *Manager) repoLinkedParent(root, path string) string {
+	rel, err := filepath.Rel(root, filepath.Dir(path))
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	dir := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		dir = filepath.Join(dir, part)
+		fi, err := os.Lstat(dir)
+		if err != nil {
+			return ""
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			if m.insideRepo(dir) {
+				return dir
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func (m *Manager) createSymlink(source, target string) error {
@@ -422,6 +504,13 @@ func (m *Manager) Status(targets []Target) ([]FileAction, error) {
 			Target:     targetName,
 		}
 
+		if dir := m.repoLinkedParent(target.RootPath, targetPath); dir != "" {
+			action.Action = "wrong_link"
+			action.Error = fmt.Errorf("reached through directory link %s; sync replaces it with per-file links", dir)
+			actions = append(actions, action)
+			continue
+		}
+
 		targetInfo, err := os.Lstat(targetPath)
 		if os.IsNotExist(err) {
 			action.Action = "missing"
@@ -474,6 +563,9 @@ func PrintActions(actions []FileAction, verbose bool) {
 			if verbose {
 				fmt.Printf("  ✓ %s%s (backed up existing)\n", prefix, a.RelPath)
 			}
+		case "unlink_dir":
+			fmt.Printf("  - %s%s: directory link into the repo replaced by a real directory (files linked one by one)\n", prefix, a.RelPath)
+			continue
 		case "cleaned":
 			cleaned++
 			if verbose {

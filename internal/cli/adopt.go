@@ -239,6 +239,30 @@ func adoptPath(sourcePath, layer string, paths config.Paths, cfg *config.Config,
 		return nil
 	}
 
+	// A directory is linked file by file, as sync links it. One symlink for
+	// the whole directory made every file under it the repo file itself, and
+	// sync's backup step then renamed files inside the repo.
+	if info.IsDir() {
+		if dotfiles.TargetNeedsSudo(targetName) {
+			rmCmd := execCommand("sudo", "rm", "-rf", absSource)
+			rmCmd.Stdout, rmCmd.Stderr = os.Stdout, os.Stderr
+			if err := rmCmd.Run(); err != nil {
+				return fmt.Errorf("sudo rm failed: %w", err)
+			}
+			fmt.Printf("Adopted %s; run 'dotgenie sync' to link its files (needs sudo)\n", absSource)
+			return nil
+		}
+		if err := os.RemoveAll(absSource); err != nil {
+			return fmt.Errorf("removing original: %w", err)
+		}
+		n, err := linkTreeFiles(destPath, absSource)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Adopted and linked %d files: %s -> %s\n", n, absSource, destPath)
+		return nil
+	}
+
 	// Remove original and create symlink
 	if dotfiles.TargetNeedsSudo(targetName) {
 		// Need sudo to modify system files
@@ -380,6 +404,18 @@ func promoteBetweenLayers(a promoteArgs) error {
 	}
 
 	// Update the symlink if the new layer wins
+	if updateSymlink && !a.copyOnly && info.IsDir() && !dotfiles.TargetNeedsSudo(a.targetName) {
+		// Per-file links, never one link for the directory (see adoptPath).
+		if err := os.RemoveAll(a.absSource); err != nil { // a link, or a dir of links
+			return fmt.Errorf("removing old links: %w", err)
+		}
+		n, err := linkTreeFiles(a.newDestPath, a.absSource)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Copied and re-linked %d files: %s -> %s\n", n, a.absSource, a.newDestPath)
+		return nil
+	}
 	if updateSymlink && !a.copyOnly {
 		if dotfiles.TargetNeedsSudo(a.targetName) {
 			if err := removeAndLinkWithSudo(a.absSource, a.newDestPath); err != nil {
@@ -407,6 +443,34 @@ func scopeFromLayer(layer string) string {
 		return "host"
 	}
 	return layer
+}
+
+// linkTreeFiles recreates the directory tree of repoDir at dir, with each
+// file a symlink to its repo copy. It returns how many files it linked.
+func linkTreeFiles(repoDir, dir string) (int, error) {
+	n := 0
+	err := filepath.WalkDir(repoDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(repoDir, path)
+		if err != nil {
+			return err
+		}
+		at := filepath.Join(dir, rel)
+		if d.IsDir() {
+			return os.MkdirAll(at, 0o755)
+		}
+		if d.Name() == ".gitkeep" {
+			return nil
+		}
+		if err := os.Symlink(path, at); err != nil {
+			return fmt.Errorf("linking %s: %w", at, err)
+		}
+		n++
+		return nil
+	})
+	return n, err
 }
 
 func removeAndLinkWithSudo(originalPath, destPath string) error {

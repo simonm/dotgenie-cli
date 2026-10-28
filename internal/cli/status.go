@@ -288,7 +288,11 @@ func printStatusSummary(actions []dotfiles.FileAction) {
 			fmt.Printf("    ○ %s (not linked)\n", a.RelPath)
 		case "wrong_link":
 			wrong++
-			fmt.Printf("    ! %s (wrong symlink)\n", a.RelPath)
+			if a.Error != nil {
+				fmt.Printf("    ! %s (%v)\n", a.RelPath, a.Error)
+			} else {
+				fmt.Printf("    ! %s (wrong symlink)\n", a.RelPath)
+			}
 		case "not_symlink":
 			notLink++
 			fmt.Printf("    ! %s (exists but not a symlink)\n", a.RelPath)
