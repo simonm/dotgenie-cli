@@ -121,6 +121,17 @@ dotgenie adopt --copy-only ~/.bashrc                       # Copy without symlin
 dotgenie adopt -y ~/.config/*                              # Skip confirmation
 ```
 
+A directory is linked file by file: `~/.config/nvim` stays a real directory and each file in it is a symlink into the repo. (Older versions linked the whole directory as one symlink, which let `apply` rename files inside the repo. `sync` now converts any such link it finds.)
+
+To move a managed file to another scope, adopt it again with the new `--scope`:
+
+```bash
+dotgenie adopt --scope host ~/.config/fish/config.fish     # Promote: copy common's version to this host
+dotgenie forget --scope common ~/.config/fish/config.fish  # Optional: drop the common copy
+```
+
+The original copy stays in its layer, so other machines keep using it. The symlink moves to the new copy if the new layer wins on this machine (host beats system type, which beats common). To demote, adopt into the lower layer, then `forget` the higher one.
+
 ### forget
 
 Remove configuration files from management:
@@ -169,6 +180,8 @@ The upgrade replaces the running binary in-place. If the install directory is no
 |   |   |       +-- hypr/
 |   |   +-- etc/              # -> /etc (desktops/laptops)
 |   |       +-- udev/rules.d/
+|   +-- server/
+|   |   +-- home/             # -> $HOME (headless servers)
 |   +-- hosts/
 |       +-- xenon/
 |           +-- home/         # -> $HOME (this host only)
