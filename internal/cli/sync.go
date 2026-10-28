@@ -90,11 +90,8 @@ func runSync(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Warning: %v (skipping git)\n", err)
 		} else {
 			fmt.Println("--- Git ---")
-			res, err := gitSync(paths.DotfilesDir, gitSyncOpts{
-				DryRun: applyDryRun,
-				NoPush: syncNoPush,
-				Host:   cfg.Hostname,
-			})
+			recordGitAuthor(paths, cfg)
+			res, err := gitSync(paths.DotfilesDir, syncGitOpts(cfg))
 			for _, n := range res.Notes {
 				fmt.Println(n)
 			}
@@ -115,6 +112,36 @@ func runSync(cmd *cobra.Command, args []string) error {
 	fmt.Println("\nSync complete")
 	maybeCheckForUpdate(paths, cfg)
 	return nil
+}
+
+// syncGitOpts is how sync runs git on this machine: the flags, the machine's
+// name for commit messages, and git_author.
+func syncGitOpts(cfg *config.Config) gitSyncOpts {
+	return gitSyncOpts{
+		DryRun: applyDryRun,
+		NoPush: syncNoPush,
+		Host:   cfg.Hostname,
+		Author: cfg.GitAuthor,
+	}
+}
+
+// recordGitAuthor fills an empty git_author in config.yml from this
+// machine's git identity, so the machines without one can commit after their
+// next pull. The change is committed by this sync.
+func recordGitAuthor(paths config.Paths, cfg *config.Config) {
+	if cfg.GitAuthor != "" || applyDryRun {
+		return
+	}
+	id := gitIdentity(paths.DotfilesDir)
+	if id == "" {
+		return
+	}
+	cfg.GitAuthor = id
+	if err := cfg.SaveShared(filepath.Join(paths.DotfilesDir, "config.yml")); err != nil {
+		fmt.Printf("Warning: recording git_author: %v\n", err)
+		return
+	}
+	fmt.Printf("Recorded git_author: %s in config.yml (every machine commits as this)\n", id)
 }
 
 // syncPackagesIfChanged installs packages if --packages is set, on a
@@ -180,6 +207,7 @@ type gitSyncOpts struct {
 	DryRun bool
 	NoPush bool
 	Host   string // goes in the commit message, so the log says which machine
+	Author string // git_author from config.yml; "" means git's own identity
 }
 
 // gitSyncResult is what gitSync did, for the caller and for tests.
@@ -207,7 +235,7 @@ func gitSync(dir string, o gitSyncOpts) (gitSyncResult, error) {
 	}
 
 	// 1. Commit local changes.
-	status, err := git(dir, "status", "--porcelain")
+	status, err := git(dir, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return r, fmt.Errorf("git status: %w", err)
 	}
@@ -224,11 +252,11 @@ func gitSync(dir string, o gitSyncOpts) (gitSyncResult, error) {
 		if o.DryRun {
 			note("Would commit: %s", msg)
 		} else {
-			if _, err := git(dir, "add", "-A"); err != nil {
-				return r, fmt.Errorf("git add: %w", err)
+			if out, err := git(dir, "add", "-A"); err != nil {
+				return r, fmt.Errorf("git add: %s", out)
 			}
-			if _, err := git(dir, "commit", "-m", msg); err != nil {
-				return r, fmt.Errorf("git commit: %w", err)
+			if err := gitCommit(dir, o.Author, msg); err != nil {
+				return r, err
 			}
 			note("Committed: %s", msg)
 		}

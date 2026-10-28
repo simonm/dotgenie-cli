@@ -76,6 +76,10 @@ func runNew(cmd *cobra.Command, args []string) error {
 
 	// Create shared config (committed to repo)
 	cfg.RepoVersion = currentRepoVersion
+	if cfg.GitAuthor = gitIdentity(paths.DotfilesDir); cfg.GitAuthor == "" {
+		fmt.Println("No git identity on this machine; dotgenie needs one for its commits.")
+		cfg.GitAuthor = askAuthor()
+	}
 	configPath := filepath.Join(paths.DotfilesDir, "config.yml")
 	if err := cfg.SaveShared(configPath); err != nil {
 		return fmt.Errorf("saving config: %w", err)

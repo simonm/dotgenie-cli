@@ -275,7 +275,10 @@ repo_version: 6
 auto_pull_before_apply: true
 auto_commit_after_adopt: true
 auto_push_after_adopt: false
+git_author: Your Name <you@example.com>
 ```
+
+`git_author` is who dotgenie commits as (`sync`, `adopt`, `forget`), on every machine. It's passed to each commit with `git -c`, so git's own config isn't changed. A server with no git identity can still commit. `new` and `init` fill it from the machine's git identity, or ask once. `sync` fills an empty one from the identity of any machine that has one, and commits it. Without `git_author`, dotgenie uses the machine's git identity; with neither, it says how to fix it.
 
 `config.local.yml` (gitignored) holds machine-specific settings:
 
@@ -283,6 +286,7 @@ auto_push_after_adopt: false
 os: arch
 system_type: workstation
 hostname: xenon
+packages_hash: 3f1c0a9e2b7d4c51   # what sync last installed here
 ```
 
 ## Building from Source
