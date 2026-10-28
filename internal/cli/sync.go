@@ -160,7 +160,7 @@ func syncPackagesIfChanged(paths config.Paths, cfg *config.Config) error {
 // the system type, and the two package files' contents.
 func packagesHash(dotfilesDir string, cfg *config.Config) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "os=%s\ntype=%s\n", cfg.OS, cfg.SystemType)
+	_, _ = fmt.Fprintf(h, "os=%s\ntype=%s\n", cfg.OS, cfg.SystemType) // a hash never fails a write
 	files := []string{"common.yml"}
 	if cfg.SystemType != "" {
 		files = append(files, cfg.SystemType+".yml")
@@ -170,8 +170,8 @@ func packagesHash(dotfilesDir string, cfg *config.Config) string {
 		if err != nil {
 			data = []byte("(missing)")
 		}
-		fmt.Fprintf(h, "%s %d\n", f, len(data))
-		h.Write(data)
+		_, _ = fmt.Fprintf(h, "%s %d\n", f, len(data))
+		_, _ = h.Write(data)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
