@@ -46,14 +46,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Dotfiles: %s\n", paths.DotfilesDir)
 	cfg.Print()
 
-	fmt.Println("\n─── Dotfiles Status ───")
-
 	mgr := dotfiles.NewManager(
 		paths.DotfilesDir,
 		paths.Home,
 		cfg.SystemType,
 		cfg.Hostname,
 	)
+	printLayers(mgr)
+
+	fmt.Println("\n─── Dotfiles Status ───")
 
 	// Check home files
 	homeTargets := []dotfiles.Target{

@@ -44,7 +44,7 @@ Examples:
 }
 
 func init() {
-	forgetCmd.Flags().StringVarP(&forgetScope, "scope", "s", "", "Layer to forget from (common, workstation, host) - required")
+	forgetCmd.Flags().StringVarP(&forgetScope, "scope", "s", "", "Layer to forget from ("+strings.Join(dotfiles.Scopes(), ", ")+") - required")
 	forgetCmd.Flags().BoolVar(&forgetKeepRepo, "keep-repo", false, "Keep file in repo, only remove symlink")
 	forgetCmd.Flags().BoolVarP(&forgetYes, "yes", "y", false, "Skip confirmation prompts")
 	_ = forgetCmd.MarkFlagRequired("scope")
@@ -63,7 +63,10 @@ func runForget(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine layer directory
-	layer := dotfiles.GetLayerForPath(forgetScope, cfg.Hostname)
+	layer, err := dotfiles.GetLayerForPath(forgetScope, cfg.Hostname)
+	if err != nil {
+		return err
+	}
 
 	fmt.Printf("Forgetting from layer: %s\n", layer)
 
@@ -183,18 +186,19 @@ func forgetPath(targetPath, layer string, paths config.Paths, cfg *config.Config
 }
 
 func findFallbackLayer(relPath, targetName, currentLayer string, paths config.Paths, cfg *config.Config) string {
-	// Check layers in reverse priority order
+	// Most specific first: once a layer's copy is forgotten, the copy in
+	// the most specific remaining layer is the one apply will link.
 	layers := []struct {
 		name string
 		path string
 	}{
-		{"common", "common"},
-		{"workstation", "workstation"},
 		{"host", filepath.Join("hosts", cfg.Hostname)},
+		{cfg.SystemType, cfg.SystemType},
+		{"common", "common"},
 	}
 
 	for _, l := range layers {
-		if l.path == currentLayer {
+		if l.path == "" || l.path == currentLayer {
 			continue
 		}
 

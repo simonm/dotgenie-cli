@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/simonm/dotgenie/internal/config"
@@ -46,7 +47,7 @@ Examples:
 }
 
 func init() {
-	adoptCmd.Flags().StringVarP(&adoptScope, "scope", "s", "common", "Layer to adopt into (common, workstation, host)")
+	adoptCmd.Flags().StringVarP(&adoptScope, "scope", "s", "common", "Layer to adopt into ("+strings.Join(dotfiles.Scopes(), ", ")+")")
 	adoptCmd.Flags().BoolVar(&adoptCopyOnly, "copy-only", false, "Copy files without creating symlinks")
 	adoptCmd.Flags().BoolVarP(&adoptYes, "yes", "y", false, "Skip confirmation prompts")
 }
@@ -64,7 +65,10 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 	}
 
 	// Determine target layer directory
-	layer := dotfiles.GetLayerForPath(adoptScope, cfg.Hostname)
+	layer, err := dotfiles.GetLayerForPath(adoptScope, cfg.Hostname)
+	if err != nil {
+		return err
+	}
 
 	fmt.Printf("Adopting into layer: %s\n", layer)
 
@@ -96,7 +100,7 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 			fmt.Printf("Error adopting %s: %v\n", sourcePath, err)
 			// Hint if path looks like a scope name
 			basename := filepath.Base(sourcePath)
-			if basename == "common" || basename == "workstation" || basename == "host" {
+			if slices.Contains(dotfiles.Scopes(), basename) {
 				fmt.Printf("  Hint: Did you mean --scope %s?\n", basename)
 			}
 		}
@@ -397,7 +401,7 @@ func promoteBetweenLayers(a promoteArgs) error {
 }
 
 // scopeFromLayer converts an internal layer name back to a --scope flag value.
-// "hosts/xenon" -> "host"; "workstation" -> "workstation"; "common" -> "common".
+// "hosts/xenon" -> "host"; "server" -> "server"; "common" -> "common".
 func scopeFromLayer(layer string) string {
 	if strings.HasPrefix(layer, "hosts/") {
 		return "host"

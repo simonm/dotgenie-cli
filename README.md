@@ -5,7 +5,7 @@ A fast, simple dotfiles manager written in Go.
 ## Features
 
 - **Fast parallel symlinking** - Links hundreds of dotfiles in milliseconds
-- **Layered configuration** - `common/` -> `workstation/` -> `hosts/<hostname>/`
+- **Layered configuration** - `common/` -> `workstation/` or `server/` -> `hosts/<hostname>/`
 - **Multi-target support** - Manage `home/`, `etc/`, `var/`, `usr/` files
 - **Direct symlinks** - Edit `~/.config/foo` and it edits your managed file
 - **Package management** - System packages via yay/apt/dnf/brew, dev tools via mise
@@ -119,7 +119,7 @@ dotgenie forget --scope host /etc/modprobe.d/iwlwifi.conf  # Remove system file
 dotgenie forget --keep-repo ~/.config/nvim             # Unlink but keep in repo
 ```
 
-When you forget a file from one layer, any version in a lower layer (e.g., common) will take effect on the next `apply`.
+When you forget a file from one layer, the version in the most specific remaining layer (host, then system type, then common) will take effect on the next `apply`.
 
 ### status
 
@@ -186,10 +186,18 @@ The upgrade replaces the running binary in-place. If the install directory is no
 Files are applied in order, with later layers overriding earlier ones:
 
 1. `common/` - Applied to all systems
-2. `workstation/` - Applied only if system type is "workstation"
+2. `workstation/` or `server/` - Applied only on systems of that type (`system_type` in `config.local.yml`)
 3. `hosts/<hostname>/` - Applied only on the matching host
 
 This lets you have a base config in `common/` and override specific files per-host.
+
+The system types are `workstation` and `server`. `status` and `apply` print the layers that apply on this machine and what each holds, for example:
+
+```
+Layers:      common (42 files, common.yml) -> server (no files, server.yml) -> hosts/boron (3 files)
+```
+
+They warn if `system_type` is unset, isn't a known type, or names a layer with no files and no package file. `--scope` for `adopt` and `forget` takes `common`, a system type, or `host`; anything else is an error.
 
 ### Targets
 

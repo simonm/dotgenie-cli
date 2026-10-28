@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -218,16 +219,23 @@ func DetectOS() string {
 	return "unknown"
 }
 
-// DetectSystemType tries to auto-detect the system type
+// SystemTypes are the system types dotgenie knows. Each names the layer
+// applied between common and the host: dotfiles/<type>/ and
+// packages/<type>.yml. This is the one list; init, adopt, forget and the
+// help text all read it.
+var SystemTypes = []string{"workstation", "server"}
+
+// IsSystemType reports whether t is one of SystemTypes.
+func IsSystemType(t string) bool {
+	return slices.Contains(SystemTypes, t)
+}
+
+// DetectSystemType tries to auto-detect the system type: workstation if
+// there's a display or a graphical target, otherwise server.
 func DetectSystemType() string {
 	// Check for display (GUI)
 	if os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != "" {
 		return "workstation"
-	}
-
-	// Check if in container
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return "container"
 	}
 
 	// Check for graphical target on systemd

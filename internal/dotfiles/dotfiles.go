@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/simonm/dotgenie/internal/config"
 )
 
 // Target represents a destination root (home, etc, var, etc.)
@@ -65,31 +67,54 @@ func NewManager(dotfilesDir, homeDir, systemType, hostname string) *Manager {
 	}
 }
 
+// Layer is one layer of the repo as it applies on this machine.
+type Layer struct {
+	Name     string // "common", the system type, or "hosts/<hostname>"
+	Dir      string // <repo>/dotfiles/<Name>
+	Files    int    // files in the layer, across all targets; 0 if Dir is missing
+	Packages string // the layer's package file ("common.yml", "<type>.yml") if it exists
+}
+
+// Layers returns the layers that apply on this machine, in the order they're
+// applied (later layers override earlier ones): common, the system type if
+// set, then the host. A layer whose directory is missing is still listed,
+// with no files, so it can be shown rather than silently skipped.
+func (m *Manager) Layers() []Layer {
+	names := []string{"common"}
+	if m.SystemType != "" {
+		names = append(names, m.SystemType)
+	}
+	names = append(names, filepath.Join("hosts", m.Hostname))
+
+	var layers []Layer
+	for _, name := range names {
+		l := Layer{Name: name, Dir: filepath.Join(m.DotfilesDir, "dotfiles", name)}
+		_ = filepath.WalkDir(l.Dir, func(_ string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && d.Name() != ".gitkeep" {
+				l.Files++
+			}
+			return nil
+		})
+		if !strings.HasPrefix(name, "hosts/") {
+			pkg := name + ".yml"
+			if _, err := os.Stat(filepath.Join(m.DotfilesDir, "packages", pkg)); err == nil {
+				l.Packages = pkg
+			}
+		}
+		layers = append(layers, l)
+	}
+	return layers
+}
+
 // CollectFiles gathers all dotfiles from the layers for specified targets
 // Returns map of "target:relPath" -> sourcePath
 func (m *Manager) CollectFiles(targets []Target) (map[string]string, error) {
 	files := make(map[string]string)
-
-	// Layer 1: common (always)
-	commonDir := filepath.Join(m.DotfilesDir, "dotfiles", "common")
-	if err := m.walkLayerTargets(commonDir, targets, files); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("walking common: %w", err)
-	}
-
-	// Layer 2: system type (if directory exists)
-	if m.SystemType != "" {
-		typeDir := filepath.Join(m.DotfilesDir, "dotfiles", m.SystemType)
-		if err := m.walkLayerTargets(typeDir, targets, files); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("walking %s: %w", m.SystemType, err)
+	for _, l := range m.Layers() {
+		if err := m.walkLayerTargets(l.Dir, targets, files); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("walking %s: %w", l.Name, err)
 		}
 	}
-
-	// Layer 3: host-specific (always, if exists)
-	hostDir := filepath.Join(m.DotfilesDir, "dotfiles", "hosts", m.Hostname)
-	if err := m.walkLayerTargets(hostDir, targets, files); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("walking host %s: %w", m.Hostname, err)
-	}
-
 	return files, nil
 }
 
@@ -491,17 +516,25 @@ func PrintActions(actions []FileAction, verbose bool) {
 	}
 }
 
-// GetLayerForPath determines which layer a path should go to
-func GetLayerForPath(scope string, hostname string) string {
-	switch strings.ToLower(scope) {
-	case "common":
-		return "common"
-	case "workstation":
-		return "workstation"
-	case "host":
-		return filepath.Join("hosts", hostname)
+// Scopes returns the values --scope takes: common, each system type, and
+// host.
+func Scopes() []string {
+	return append(append([]string{"common"}, config.SystemTypes...), "host")
+}
+
+// GetLayerForPath returns the layer directory (under dotfiles/) for a
+// --scope value. An unknown scope is an error: falling back to common would
+// adopt a file onto every machine, or forget it from all of them.
+func GetLayerForPath(scope string, hostname string) (string, error) {
+	switch s := strings.ToLower(scope); {
+	case s == "common":
+		return "common", nil
+	case s == "host":
+		return filepath.Join("hosts", hostname), nil
+	case config.IsSystemType(s):
+		return s, nil
 	default:
-		return "common"
+		return "", fmt.Errorf("unknown scope %q: use one of %s", scope, strings.Join(Scopes(), ", "))
 	}
 }
 

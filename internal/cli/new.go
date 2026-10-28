@@ -50,13 +50,15 @@ func runNew(cmd *cobra.Command, args []string) error {
 	cfg := config.NewFromDetection()
 
 	// Create directory structure
-	dirs := []string{
-		"dotfiles/common/home/.config",
-		"dotfiles/workstation/home/.config",
+	dirs := []string{"dotfiles/common/home/.config"}
+	for _, t := range config.SystemTypes {
+		dirs = append(dirs, "dotfiles/"+t+"/home/.config")
+	}
+	dirs = append(dirs,
 		fmt.Sprintf("dotfiles/hosts/%s/home/.config", cfg.Hostname),
 		fmt.Sprintf("dotfiles/hosts/%s/etc", cfg.Hostname),
 		"packages",
-	}
+	)
 
 	for _, dir := range dirs {
 		fullPath := filepath.Join(paths.DotfilesDir, dir)

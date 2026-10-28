@@ -103,6 +103,7 @@ func applyAllDotfiles(paths config.Paths, cfg *config.Config) error {
 		cfg.SystemType,
 		cfg.Hostname,
 	)
+	printLayers(mgr)
 
 	if applyDryRun {
 		fmt.Println("(dry run - no changes will be made)")
