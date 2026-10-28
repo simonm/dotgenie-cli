@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/simonm/dotgenie/internal/config"
@@ -13,85 +12,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Flags shared by sync (and its alias apply) and the linking helpers below.
 var (
-	applyWithPackages    bool
 	applyDryRun          bool
 	applyContinueOnError bool
 	applyVerbose         bool
 )
-
-var applyCmd = &cobra.Command{
-	Use:   "apply",
-	Short: "Apply dotfiles and optionally install packages",
-	Long: `Apply your dotfiles configuration by linking dotfiles from
-common/, workstation/, and hosts/<hostname>/.
-
-Both home (~/) and system files (/etc, /var, /usr) are checked.
-If system files need changes, you'll be prompted before sudo runs.
-
-Use --packages to also install system packages and mise tools.`,
-	RunE: runApply,
-}
-
-func init() {
-	applyCmd.Flags().BoolVarP(&applyWithPackages, "packages", "p", false, "Also install packages")
-	applyCmd.Flags().BoolVarP(&applyDryRun, "dry-run", "n", false, "Show what would be done without making changes")
-	applyCmd.Flags().BoolVarP(&applyContinueOnError, "continue-on-error", "k", false, "Continue even if some packages fail")
-	applyCmd.Flags().BoolVarP(&applyVerbose, "verbose", "v", false, "Show detailed output")
-}
-
-func runApply(cmd *cobra.Command, args []string) error {
-	paths := config.DefaultPaths()
-	if dotfilesDir != "" {
-		paths.DotfilesDir = dotfilesDir
-	}
-
-	// Load config
-	cfg, err := config.Load(filepath.Join(paths.DotfilesDir, "config.yml"))
-	if err != nil {
-		return fmt.Errorf("loading config: %w\nRun 'dotgenie init' first", err)
-	}
-
-	// Check if repo infrastructure needs upgrading
-	if cfg.RepoVersion < currentRepoVersion {
-		// Update repo version
-		cfg.RepoVersion = currentRepoVersion
-		configPath := filepath.Join(paths.DotfilesDir, "config.yml")
-		if err := cfg.SaveShared(configPath); err != nil {
-			return fmt.Errorf("saving updated config: %w", err)
-		}
-	}
-
-	// Auto-pull if enabled (check git is available first)
-	if cfg.AutoPullBeforeApply && !applyDryRun {
-		if err := ensureDep("git", "git", cfg.OS); err != nil {
-			fmt.Printf("Warning: %v (skipping auto-pull)\n", err)
-		} else {
-			if err := gitPullIfNeeded(paths.DotfilesDir); err != nil {
-				fmt.Printf("Warning: %v\n", err)
-			}
-		}
-	}
-
-	// Apply dotfiles (home + system)
-	if err := applyAllDotfiles(paths, cfg); err != nil {
-		return err
-	}
-
-	// Install packages (only if --packages flag)
-	if applyWithPackages {
-		if err := applyPackages(paths, cfg); err != nil {
-			return err
-		}
-	}
-
-	fmt.Println("\n✓ Apply complete!")
-
-	// Check for dotgenie updates (non-blocking, respects check interval)
-	maybeCheckForUpdate(paths, cfg)
-
-	return nil
-}
 
 func applyAllDotfiles(paths config.Paths, cfg *config.Config) error {
 	fmt.Println("\n─── Dotfiles ───")
@@ -263,89 +189,4 @@ func runApplySystemInternal(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-func applyPackages(paths config.Paths, cfg *config.Config) error {
-	return applyPackagesNew(paths, cfg, applyDryRun, applyContinueOnError, applyVerbose)
-}
-
-func gitPullIfNeeded(dotfilesDir string) error {
-	// Check if it's a git repo
-	gitDir := filepath.Join(dotfilesDir, ".git")
-	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
-		return nil
-	}
-
-	// Check for remote
-	remoteCmd := exec.Command("git", "remote", "get-url", "origin")
-	remoteCmd.Dir = dotfilesDir
-	if err := remoteCmd.Run(); err != nil {
-		return nil // No remote, skip
-	}
-
-	fmt.Print("─── Git Sync ───\nFetching remote changes... ")
-
-	// Fetch
-	fetchCmd := exec.Command("git", "fetch")
-	fetchCmd.Dir = dotfilesDir
-	if err := fetchCmd.Run(); err != nil {
-		fmt.Println("failed (continuing without sync)")
-		return nil
-	}
-
-	// Check if behind
-	statusCmd := exec.Command("git", "status", "-uno", "--porcelain=v2", "--branch")
-	statusCmd.Dir = dotfilesDir
-	output, _ := statusCmd.Output()
-
-	if len(output) > 0 && contains(string(output), "behind") {
-		fmt.Println("updates available")
-
-		// Check for local changes
-		diffCmd := exec.Command("git", "diff", "--quiet")
-		diffCmd.Dir = dotfilesDir
-		if err := diffCmd.Run(); err != nil {
-			return fmt.Errorf("remote has updates but you have local changes - run 'dotgenie sync' first")
-		}
-
-		// Show what changed
-		logCmd := exec.Command("git", "log", "--oneline", "HEAD..origin/HEAD", "--")
-		logCmd.Dir = dotfilesDir
-		logOutput, _ := logCmd.Output()
-		if len(logOutput) > 0 {
-			fmt.Println("  Incoming changes:")
-			for _, line := range strings.Split(strings.TrimSpace(string(logOutput)), "\n") {
-				if line != "" {
-					fmt.Printf("    %s\n", line)
-				}
-			}
-		}
-
-		fmt.Println("  Pulling...")
-		pullCmd := exec.Command("git", "pull", "--no-rebase")
-		pullCmd.Dir = dotfilesDir
-		pullCmd.Stdout = os.Stdout
-		pullCmd.Stderr = os.Stderr
-		if err := pullCmd.Run(); err != nil {
-			return fmt.Errorf("git pull failed: %w", err)
-		}
-		fmt.Println("  ✓ Updated from remote")
-	} else {
-		fmt.Println("up to date")
-	}
-
-	return nil
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

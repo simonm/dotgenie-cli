@@ -129,10 +129,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 
 	if missing+wrong+notLink > 0 {
-		fmt.Println("\nRun 'dotgenie apply' to fix issues")
-		if statusSystem {
-			fmt.Println("Use 'dotgenie apply --system' to also fix system files")
-		}
+		fmt.Println("\nRun 'dotgenie sync' to fix issues (system files are offered with sudo)")
 	}
 
 	// Git repo status (silent fail)

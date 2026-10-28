@@ -32,7 +32,7 @@ You must specify which layer to forget from:
   - host:        This specific host only
 
 If a file exists in multiple layers (e.g., common and host), forgetting from
-one layer allows the other layer to take effect on next apply.
+one layer allows the other layer to take effect on the next sync.
 
 Examples:
   dotgenie forget --scope host ~/.config/monitors.xml    # Forget host override
@@ -130,7 +130,7 @@ func forgetPath(targetPath, layer string, paths config.Paths, cfg *config.Config
 	// Check if there's a fallback in another layer
 	fallback := findFallbackLayer(relPath, targetName, layer, paths, cfg)
 	if fallback != "" {
-		fmt.Printf("  Note: %s/%s will take effect after next apply\n", fallback, targetName)
+		fmt.Printf("  Note: %s/%s will take effect after the next sync\n", fallback, targetName)
 	}
 
 	// Confirm unless -y flag

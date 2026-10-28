@@ -174,3 +174,9 @@ func TestIsSystemType(t *testing.T) {
 		}
 	}
 }
+
+func TestNewMachineIsMarkedForPackages(t *testing.T) {
+	if c := NewFromDetection(); c.PackagesHash != PackagesNeverInstalled {
+		t.Fatalf("PackagesHash = %q, want %q", c.PackagesHash, PackagesNeverInstalled)
+	}
+}

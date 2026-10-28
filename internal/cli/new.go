@@ -25,7 +25,7 @@ This creates a starter dotfiles repo with:
 After running this, you can:
   1. Add your dotfiles with 'dotgenie adopt'
   2. Edit packages/*.yml to specify your packages
-  3. Run 'dotgenie apply' to link and install
+  3. Run 'dotgenie sync' to link and install
 
 Example:
   dotgenie new                      # Create at ~/.dotfiles
@@ -123,7 +123,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\nNext steps:\n")
 	fmt.Printf("  1. Add dotfiles:     dotgenie adopt ~/.config/nvim\n")
 	fmt.Printf("  2. Edit packages:    $EDITOR %s/packages/common.yml\n", paths.DotfilesDir)
-	fmt.Printf("  3. Apply:            dotgenie apply\n")
+	fmt.Printf("  3. Link and install: dotgenie sync\n")
 	fmt.Printf("  4. Push to GitHub:   cd %s && git remote add origin <url> && git push -u origin main\n", paths.DotfilesDir)
 
 	return nil
@@ -249,9 +249,9 @@ Edit files in %s to manage packages:
 		`# Install dotgenie
 curl -fsSL https://raw.githubusercontent.com/simonm/dotgenie-cli/main/install.sh | bash
 
-# Clone and apply
+# Clone, link and install
 dotgenie init https://github.com/YOUR_USERNAME/dotfiles
-dotgenie apply
+dotgenie sync
 `, "```\n",
 		"```\n",
 		`dotfiles/

@@ -31,7 +31,7 @@ var rootCmd = &cobra.Command{
 
 Get started:
   dotgenie init https://github.com/you/dotfiles
-  dotgenie apply`,
+  dotgenie sync`,
 	SilenceUsage: true,
 }
 
@@ -46,7 +46,6 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(newCmd)
 	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(applyCmd)
 	rootCmd.AddCommand(adoptCmd)
 	rootCmd.AddCommand(forgetCmd)
 	rootCmd.AddCommand(syncCmd)

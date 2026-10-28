@@ -27,7 +27,14 @@ type Config struct {
 
 	// Local-only (not serialized to shared config)
 	LastUpdateCheck string `yaml:"last_update_check,omitempty"`
+	PackagesHash    string `yaml:"packages_hash,omitempty"` // what was last installed here
 }
+
+// PackagesNeverInstalled marks a machine set up by dotgenie (init, new, or a
+// generated config.local.yml) whose packages haven't been installed yet; its
+// first sync installs them. A config with no packages_hash at all predates
+// this record, so sync doesn't know and only says how to start tracking.
+const PackagesNeverInstalled = "none"
 
 // SharedConfig holds fields that belong in the shared config.yml (committed to git)
 type SharedConfig struct {
@@ -44,6 +51,7 @@ type LocalConfig struct {
 	SystemType       string `yaml:"system_type"`
 	Hostname         string `yaml:"hostname"`
 	LastUpdateCheck  string `yaml:"last_update_check,omitempty"`
+	PackagesHash     string `yaml:"packages_hash,omitempty"`
 }
 
 // Paths holds the important directories
@@ -100,11 +108,13 @@ func Load(path string) (*Config, error) {
 			cfg.Hostname = local.Hostname
 		}
 		cfg.LastUpdateCheck = local.LastUpdateCheck
+		cfg.PackagesHash = local.PackagesHash
 	} else if os.IsNotExist(localErr) && cfg.OS == "" {
 		// New-style repo without a local config -- auto-detect and create it
 		cfg.OS = DetectOS()
 		cfg.SystemType = DetectSystemType()
 		cfg.Hostname = DetectHostname()
+		cfg.PackagesHash = PackagesNeverInstalled
 
 		fmt.Printf("Detected: %s / %s / %s\n", cfg.OS, cfg.SystemType, cfg.Hostname)
 
@@ -154,6 +164,7 @@ func (c *Config) SaveLocal(path string) error {
 		SystemType:      c.SystemType,
 		Hostname:        c.Hostname,
 		LastUpdateCheck: c.LastUpdateCheck,
+		PackagesHash:    c.PackagesHash,
 	}
 	data, err := yaml.Marshal(&local)
 	if err != nil {
@@ -262,6 +273,7 @@ func NewFromDetection() *Config {
 		OS:                   DetectOS(),
 		SystemType:           DetectSystemType(),
 		Hostname:             DetectHostname(),
+		PackagesHash:         PackagesNeverInstalled,
 		AutoPullBeforeApply:  true,
 		AutoCommitAfterAdopt: true,
 		AutoPushAfterAdopt:   false,

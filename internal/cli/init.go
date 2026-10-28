@@ -131,8 +131,8 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\n✓ Initialization complete!\n\n")
 	fmt.Printf("Next steps:\n")
-	fmt.Printf("  dotgenie apply           # Link dotfiles and install packages\n")
-	fmt.Printf("  dotgenie apply --dotfiles-only  # Link dotfiles only\n")
+	fmt.Printf("  dotgenie sync            # Pull, link dotfiles, install packages\n")
+	fmt.Printf("  dotgenie sync --dry-run  # Preview first\n")
 	fmt.Printf("  dotgenie status          # Check current state\n")
 
 	return nil
