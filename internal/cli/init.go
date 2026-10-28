@@ -129,6 +129,21 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("✓ Shared configuration saved to %s\n", configPath)
 	}
 
+	// dotgenie commits as git_author (config.yml) or git's own identity. If
+	// there's neither, ask once, so the first adopt or sync doesn't fail.
+	if shared, err := config.Load(configPath); err == nil && shared.GitAuthor == "" && gitIdentity(paths.DotfilesDir) == "" {
+		fmt.Println("\nThis machine has no git identity and config.yml has no git_author.")
+		if a := askAuthor(); a != "" {
+			shared.GitAuthor = a
+			if err := shared.SaveShared(configPath); err != nil {
+				return fmt.Errorf("saving git_author: %w", err)
+			}
+			fmt.Printf("Recorded git_author: %s in config.yml\n", a)
+		} else {
+			fmt.Println(errNoIdentity)
+		}
+	}
+
 	fmt.Printf("\n✓ Initialization complete!\n\n")
 	fmt.Printf("Next steps:\n")
 	fmt.Printf("  dotgenie sync            # Pull, link dotfiles, install packages\n")

@@ -84,7 +84,7 @@ func runForget(cmd *cobra.Command, args []string) error {
 
 	// Auto-commit if enabled and we removed files
 	if cfg.AutoCommitAfterAdopt && !forgetKeepRepo {
-		if err := gitCommitForgotten(paths.DotfilesDir); err != nil {
+		if err := gitCommitForgotten(paths.DotfilesDir, cfg.GitAuthor); err != nil {
 			fmt.Printf("Warning: auto-commit failed: %v\n", err)
 		}
 	}
@@ -224,7 +224,7 @@ func cleanEmptyDirs(dir, stopAt string) {
 	}
 }
 
-func gitCommitForgotten(dotfilesDir string) error {
+func gitCommitForgotten(dotfilesDir, author string) error {
 	// Check if it's a git repo
 	gitDir := filepath.Join(dotfilesDir, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
@@ -232,7 +232,7 @@ func gitCommitForgotten(dotfilesDir string) error {
 	}
 
 	// Check for changes
-	cmd := execCommand("git", "status", "--porcelain")
+	cmd := execCommand("git", "status", "--porcelain", "--untracked-files=all")
 	cmd.Dir = dotfilesDir
 	output, err := cmd.Output()
 	if err != nil || len(output) == 0 {
@@ -240,13 +240,9 @@ func gitCommitForgotten(dotfilesDir string) error {
 	}
 
 	// Add and commit
-	addCmd := execCommand("git", "add", "-A")
-	addCmd.Dir = dotfilesDir
-	if err := addCmd.Run(); err != nil {
-		return err
+	if out, err := git(dotfilesDir, "add", "-A"); err != nil {
+		return fmt.Errorf("git add: %s", out)
 	}
 
-	commitCmd := execCommand("git", "commit", "-m", "Forget dotfiles via dotgenie")
-	commitCmd.Dir = dotfilesDir
-	return commitCmd.Run()
+	return gitCommit(dotfilesDir, author, "Forget dotfiles via dotgenie")
 }

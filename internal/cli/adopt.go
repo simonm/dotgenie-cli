@@ -110,7 +110,7 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 	if cfg.AutoCommitAfterAdopt && !adoptCopyOnly {
 		if !checkCommand("git") {
 			fmt.Println("Warning: git not found, skipping auto-commit")
-		} else if err := gitCommitAdopted(paths.DotfilesDir); err != nil {
+		} else if err := gitCommitAdopted(paths.DotfilesDir, cfg.GitAuthor); err != nil {
 			fmt.Printf("Warning: auto-commit failed: %v\n", err)
 		}
 	}
@@ -528,7 +528,7 @@ func copyDir(src, dst string) error {
 	})
 }
 
-func gitCommitAdopted(dotfilesDir string) error {
+func gitCommitAdopted(dotfilesDir, author string) error {
 	// Check if it's a git repo
 	gitDir := filepath.Join(dotfilesDir, ".git")
 	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
@@ -536,7 +536,7 @@ func gitCommitAdopted(dotfilesDir string) error {
 	}
 
 	// Check for changes
-	cmd := execCommand("git", "status", "--porcelain")
+	cmd := execCommand("git", "status", "--porcelain", "--untracked-files=all")
 	cmd.Dir = dotfilesDir
 	output, err := cmd.Output()
 	if err != nil || len(output) == 0 {
@@ -559,13 +559,9 @@ func gitCommitAdopted(dotfilesDir string) error {
 	}
 
 	// Add and commit
-	addCmd := execCommand("git", "add", "-A")
-	addCmd.Dir = dotfilesDir
-	if err := addCmd.Run(); err != nil {
-		return err
+	if out, err := git(dotfilesDir, "add", "-A"); err != nil {
+		return fmt.Errorf("git add: %s", out)
 	}
 
-	commitCmd := execCommand("git", "commit", "-m", msg.String())
-	commitCmd.Dir = dotfilesDir
-	return commitCmd.Run()
+	return gitCommit(dotfilesDir, author, msg.String())
 }

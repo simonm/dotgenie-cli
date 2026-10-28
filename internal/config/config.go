@@ -25,6 +25,10 @@ type Config struct {
 	AutoPushAfterAdopt   bool `yaml:"auto_push_after_adopt"`
 	UpdateCheckDays      int  `yaml:"update_check_days,omitempty"`
 
+	// GitAuthor is who dotgenie commits as, "Name <email>". Shared, so every
+	// machine commits with it, whatever its own git config says.
+	GitAuthor string `yaml:"git_author,omitempty"`
+
 	// Local-only (not serialized to shared config)
 	LastUpdateCheck string `yaml:"last_update_check,omitempty"`
 	PackagesHash    string `yaml:"packages_hash,omitempty"` // what was last installed here
@@ -43,6 +47,7 @@ type SharedConfig struct {
 	AutoCommitAfterAdopt bool `yaml:"auto_commit_after_adopt"`
 	AutoPushAfterAdopt   bool `yaml:"auto_push_after_adopt"`
 	UpdateCheckDays      int  `yaml:"update_check_days,omitempty"`
+	GitAuthor            string `yaml:"git_author,omitempty"`
 }
 
 // LocalConfig holds fields that belong in config.local.yml (machine-specific, gitignored)
@@ -149,6 +154,7 @@ func (c *Config) SaveShared(path string) error {
 		AutoCommitAfterAdopt: c.AutoCommitAfterAdopt,
 		AutoPushAfterAdopt:   c.AutoPushAfterAdopt,
 		UpdateCheckDays:      c.UpdateCheckDays,
+		GitAuthor:            c.GitAuthor,
 	}
 	data, err := yaml.Marshal(&shared)
 	if err != nil {
